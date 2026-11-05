@@ -4,7 +4,7 @@
     "slug": "yamu-driver-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/1.png",
+    "icon": "./assets/2.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true
