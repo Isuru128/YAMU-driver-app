@@ -17,10 +17,8 @@ import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
 import { Colors } from '../../constants/colors';
 import { Typography } from '../../constants/typography';
-import { VehicleType, VEHICLE_OPTIONS } from '../../constants/rideConstants';
 import { isValidEmail, isValidSriLankanPhone } from '../../utils/validators';
 import { useAuth } from '../../hooks/useAuth';
-import { driverService } from '../../services/driverService';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
 
@@ -34,15 +32,6 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-
-  // Driver & Vehicle fields
-  const [licenseNumber, setLicenseNumber] = useState('');
-  const [serviceArea, setServiceArea] = useState('Colombo');
-  const [vehicleType, setVehicleType] = useState<VehicleType>(VehicleType.TUK);
-  const [licensePlate, setLicensePlate] = useState('');
-  const [vehicleMake, setVehicleMake] = useState('');
-  const [vehicleModel, setVehicleModel] = useState('');
-  const [vehicleColor, setVehicleColor] = useState('Red');
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
@@ -66,18 +55,6 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
     if (!password || password.length < 6) {
       errs.password = 'Password must be at least 6 characters';
     }
-    if (!licenseNumber.trim()) {
-      errs.licenseNumber = 'Driving license number is required';
-    }
-    if (!licensePlate.trim()) {
-      errs.licensePlate = 'Vehicle license plate is required (e.g. WP AA-4521)';
-    }
-    if (!vehicleMake.trim()) {
-      errs.vehicleMake = 'Vehicle make is required (e.g. Bajaj, Toyota)';
-    }
-    if (!vehicleModel.trim()) {
-      errs.vehicleModel = 'Vehicle model is required (e.g. RE 4S, Aqua)';
-    }
 
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -89,39 +66,15 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
 
     setSubmitting(true);
     try {
-      // 1. Register DRIVER account in Account Service
-      const authRes = await register({
-        firstName,
-        lastName,
-        email,
+      // Register DRIVER account in Account Service
+      await register({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
         password,
-        phoneNumber,
+        phoneNumber: phoneNumber.trim(),
         role: 'DRIVER',
       });
-
-      // 2. Register Driver & Vehicle operational profile in Driver Service
-      try {
-        const selectedOption = VEHICLE_OPTIONS.find((v) => v.id === vehicleType);
-        await driverService.registerDriver(
-          {
-            userId: authRes.account?.id,
-            licenseNumber: licenseNumber.trim().toUpperCase(),
-            serviceArea: serviceArea.trim() || 'Colombo',
-            vehicle: {
-              licensePlate: licensePlate.trim().toUpperCase(),
-              make: vehicleMake.trim(),
-              model: vehicleModel.trim(),
-              year: 2022,
-              color: vehicleColor.trim() || 'White',
-              vehicleType,
-              capacity: selectedOption?.capacity || 3,
-            },
-          },
-          authRes.token
-        );
-      } catch (driverErr) {
-        console.warn('Driver operational profile setup notice:', driverErr);
-      }
     } catch (err: any) {
       const msg = err?.message || 'Driver registration failed. Please check your details.';
       setGeneralError(msg);
@@ -140,7 +93,9 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
           <View style={styles.brandHeader}>
             <Text style={styles.logoText}>YAMU DRIVER</Text>
-            <Text style={styles.tagline}>Register your driver account & vehicle</Text>
+            <Text style={styles.tagline}>
+              Create your driver partner account. You can add and manage your vehicles from your profile after signing in.
+            </Text>
           </View>
 
           {generalError && (
@@ -151,7 +106,7 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
           )}
 
           <View style={styles.formSection}>
-            <Text style={styles.sectionHeader}>1. Personal Details</Text>
+            <Text style={styles.sectionHeader}>Personal Details</Text>
             <View style={styles.nameRow}>
               <View style={styles.halfInput}>
                 <Input
@@ -228,110 +183,8 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
               onRightIconPress={() => setShowPassword((prev) => !prev)}
             />
 
-            <Text style={[styles.sectionHeader, { marginTop: 12 }]}>
-              2. License & Vehicle Information
-            </Text>
-
-            <View style={styles.nameRow}>
-              <View style={styles.halfInput}>
-                <Input
-                  label="Driving License No."
-                  placeholder="B1234567"
-                  value={licenseNumber}
-                  onChangeText={(val) => {
-                    setLicenseNumber(val);
-                    if (errors.licenseNumber) setErrors((prev) => ({ ...prev, licenseNumber: '' }));
-                  }}
-                  autoCapitalize="characters"
-                  error={errors.licenseNumber}
-                />
-              </View>
-              <View style={styles.halfInput}>
-                <Input
-                  label="Service City"
-                  placeholder="Colombo"
-                  value={serviceArea}
-                  onChangeText={setServiceArea}
-                />
-              </View>
-            </View>
-
-            <Text style={styles.fieldLabel}>VEHICLE CATEGORY</Text>
-            <View style={styles.vehicleTypeRow}>
-              {VEHICLE_OPTIONS.map((v) => {
-                const selected = vehicleType === v.id;
-                return (
-                  <TouchableOpacity
-                    key={v.id}
-                    style={[styles.vTypeChip, selected && styles.vTypeChipActive]}
-                    onPress={() => setVehicleType(v.id)}
-                  >
-                    <Ionicons
-                      name={v.iconName as any}
-                      size={18}
-                      color={selected ? Colors.white : Colors.textPrimary}
-                    />
-                    <Text style={[styles.vTypeText, selected && styles.vTypeTextActive]}>
-                      {v.name}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <View style={styles.nameRow}>
-              <View style={styles.halfInput}>
-                <Input
-                  label="License Plate"
-                  placeholder="WP AA-4521"
-                  value={licensePlate}
-                  onChangeText={(val) => {
-                    setLicensePlate(val);
-                    if (errors.licensePlate) setErrors((prev) => ({ ...prev, licensePlate: '' }));
-                  }}
-                  autoCapitalize="characters"
-                  error={errors.licensePlate}
-                />
-              </View>
-              <View style={styles.halfInput}>
-                <Input
-                  label="Color"
-                  placeholder="Red / White"
-                  value={vehicleColor}
-                  onChangeText={setVehicleColor}
-                />
-              </View>
-            </View>
-
-            <View style={styles.nameRow}>
-              <View style={styles.halfInput}>
-                <Input
-                  label="Vehicle Make"
-                  placeholder="Bajaj / Toyota"
-                  value={vehicleMake}
-                  onChangeText={(val) => {
-                    setVehicleMake(val);
-                    if (errors.vehicleMake) setErrors((prev) => ({ ...prev, vehicleMake: '' }));
-                  }}
-                  error={errors.vehicleMake}
-                />
-              </View>
-              <View style={styles.halfInput}>
-                <Input
-                  label="Vehicle Model"
-                  placeholder="RE 4S / Aqua"
-                  value={vehicleModel}
-                  onChangeText={(val) => {
-                    setVehicleModel(val);
-                    if (errors.vehicleModel) setErrors((prev) => ({ ...prev, vehicleModel: '' }));
-                  }}
-                  error={errors.vehicleModel}
-                />
-              </View>
-            </View>
-
             <Button
-              title="Complete Driver Registration"
+              title="Create Driver Account"
               onPress={handleRegister}
               loading={isLoading || submitting}
               style={styles.submitButton}
@@ -374,6 +227,7 @@ const styles = StyleSheet.create({
     ...Typography.subtitle,
     color: Colors.textSecondary,
     marginTop: 4,
+    textAlign: 'center',
   },
   errorBanner: {
     flexDirection: 'row',
