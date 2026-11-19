@@ -3,6 +3,7 @@ import { VehicleType } from '../constants/rideConstants';
 export type AvailabilityStatus = 'AVAILABLE' | 'ON_TRIP' | 'OFFLINE';
 
 export interface DriverVehicle {
+  id?: string;
   licensePlate: string;
   make: string;
   model: string;
@@ -10,6 +11,7 @@ export interface DriverVehicle {
   color: string;
   vehicleType: VehicleType;
   capacity?: number;
+  isActive?: boolean;
 }
 
 export interface DriverLocation {
