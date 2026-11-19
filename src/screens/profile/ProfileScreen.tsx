@@ -15,8 +15,10 @@ import { MainTabParamList, RootStackParamList } from '../../navigation/types';
 import { SafeScreen } from '../../components/layout/SafeScreen';
 import { AppHeader } from '../../components/layout/AppHeader';
 import { Card } from '../../components/common/Card';
+import { Button } from '../../components/common/Button';
 import { Colors } from '../../constants/colors';
 import { Typography } from '../../constants/typography';
+import { VEHICLE_OPTIONS } from '../../constants/rideConstants';
 import { useAuth } from '../../hooks/useAuth';
 import { useDriver } from '../../hooks/useDriver';
 
@@ -27,13 +29,30 @@ type Props = CompositeScreenProps<
 
 export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
   const { user, logout } = useAuth();
-  const { driverProfile, availabilityStatus } = useDriver();
+  const {
+    driverProfile,
+    vehicles,
+    availabilityStatus,
+    selectActiveVehicle,
+    isLoadingDriver,
+  } = useDriver();
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out of YAMU Driver?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Sign Out', style: 'destructive', onPress: logout },
     ]);
+  };
+
+  const handleSelectActiveVehicle = async (vehicleIdOrPlate: string) => {
+    try {
+      await selectActiveVehicle(vehicleIdOrPlate);
+    } catch (err: any) {
+      Alert.alert(
+        'Cannot Switch Vehicle',
+        err?.message || 'Unable to change active vehicle right now.'
+      );
+    }
   };
 
   return (
@@ -64,44 +83,123 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         </Card>
 
-        {/* Vehicle Summary Card */}
+        {/* Registered Vehicles & Active Vehicle Tick Card */}
         <Card style={styles.vehicleCard}>
           <View style={styles.vehicleHeader}>
-            <Text style={styles.sectionTitle}>Assigned Vehicle & License</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('VehicleManagement')}>
-              <Text style={styles.editLink}>Edit</Text>
-            </TouchableOpacity>
-          </View>
-
-          {driverProfile?.vehicle ? (
-            <View style={styles.vehicleDetails}>
-              <Text style={styles.vehicleMain}>
-                {driverProfile.vehicle.make} {driverProfile.vehicle.model} (
-                {driverProfile.vehicle.vehicleType})
-              </Text>
-              <Text style={styles.vehicleMeta}>
-                Plate: {driverProfile.vehicle.licensePlate} • Color: {driverProfile.vehicle.color}
-              </Text>
-              <Text style={styles.vehicleMeta}>
-                License No: {driverProfile.licenseNumber} • Service Area:{' '}
-                {driverProfile.serviceArea}
+            <View>
+              <Text style={styles.sectionTitle}>My Registered Vehicles</Text>
+              <Text style={styles.sectionHint}>
+                Tick one active vehicle to use when going online
               </Text>
             </View>
+            {vehicles.length > 0 && (
+              <TouchableOpacity
+                onPress={() => navigation.navigate('VehicleManagement', { mode: 'manage' })}
+              >
+                <Text style={styles.editLink}>Manage</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {driverProfile?.licenseNumber ? (
+            <View style={styles.credentialsBanner}>
+              <Ionicons name="id-card-outline" size={16} color={Colors.primary} />
+              <Text style={styles.credentialsText}>
+                License: {driverProfile.licenseNumber} • Service City: {driverProfile.serviceArea}
+              </Text>
+            </View>
+          ) : null}
+
+          {vehicles.length > 0 ? (
+            <View style={styles.vehicleList}>
+              {vehicles.map((veh) => {
+                const isTicked = !!veh.isActive;
+                const vOption = VEHICLE_OPTIONS.find((o) => o.id === veh.vehicleType);
+                const key = veh.id || veh.licensePlate;
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={[styles.vehicleItem, isTicked && styles.vehicleItemActive]}
+                    activeOpacity={0.85}
+                    disabled={isLoadingDriver}
+                    onPress={() => handleSelectActiveVehicle(key)}
+                  >
+                    <View
+                      style={[
+                        styles.vehicleIconWrap,
+                        isTicked && styles.vehicleIconWrapActive,
+                      ]}
+                    >
+                      <Ionicons
+                        name={(vOption?.iconName as any) || 'car-sport'}
+                        size={20}
+                        color={isTicked ? Colors.white : Colors.primary}
+                      />
+                    </View>
+
+                    <View style={styles.vehicleInfoWrap}>
+                      <View style={styles.vehicleTitleRow}>
+                        <Text style={styles.vehicleMain}>
+                          {veh.make} {veh.model} ({veh.vehicleType})
+                        </Text>
+                        {isTicked && (
+                          <View style={styles.activeBadge}>
+                            <Text style={styles.activeBadgeText}>ACTIVE</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={styles.vehicleMeta}>
+                        Plate: {veh.licensePlate} • Color: {veh.color}
+                        {veh.year ? ` • ${veh.year}` : ''}
+                      </Text>
+                    </View>
+
+                    {/* Active Vehicle Tick */}
+                    <View style={styles.tickWrap}>
+                      <Ionicons
+                        name={isTicked ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={24}
+                        color={isTicked ? Colors.success : Colors.textMuted}
+                      />
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           ) : (
-            <Text style={styles.vehicleMeta}>
-              No vehicle registered yet. Tap Edit to configure your vehicle and license.
-            </Text>
+            <View style={styles.emptyVehicleBox}>
+              <Ionicons name="car-sport-outline" size={28} color={Colors.textMuted} />
+              <Text style={styles.vehicleMeta}>
+                No vehicle registered yet. Add your driving license and first vehicle to go online.
+              </Text>
+            </View>
           )}
+
+          <Button
+            title="Add a vehicle"
+            onPress={() => navigation.navigate('VehicleManagement', { mode: 'add' })}
+            icon={<Ionicons name="add-circle-outline" size={20} color={Colors.white} />}
+            style={styles.addVehicleBtn}
+          />
         </Card>
 
         {/* Menu Actions */}
         <Card style={styles.menuCard}>
           <TouchableOpacity
             style={styles.menuItem}
-            onPress={() => navigation.navigate('VehicleManagement')}
+            onPress={() => navigation.navigate('VehicleManagement', { mode: 'add' })}
+          >
+            <Ionicons name="add-circle-outline" size={22} color={Colors.primary} />
+            <Text style={[styles.menuText, { color: Colors.primary }]}>Add a vehicle</Text>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => navigation.navigate('VehicleManagement', { mode: 'manage' })}
           >
             <Ionicons name="car-sport-outline" size={22} color={Colors.textPrimary} />
-            <Text style={styles.menuText}>Vehicle & License Settings</Text>
+            <Text style={styles.menuText}>Manage Vehicles & License</Text>
             <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
           </TouchableOpacity>
 
@@ -187,31 +285,113 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
   },
   vehicleCard: {
-    gap: 8,
+    gap: 12,
   },
   vehicleHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   sectionTitle: {
     ...Typography.h3,
     color: Colors.textPrimary,
   },
+  sectionHint: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
   editLink: {
     ...Typography.bodyBold,
     color: Colors.primary,
   },
-  vehicleDetails: {
-    gap: 4,
+  credentialsBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  credentialsText: {
+    ...Typography.caption,
+    color: Colors.textPrimary,
+    fontWeight: '600',
+  },
+  vehicleList: {
+    gap: 10,
+  },
+  vehicleItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  vehicleItemActive: {
+    borderColor: Colors.success,
+    backgroundColor: '#F0FDF4',
+  },
+  vehicleIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vehicleIconWrapActive: {
+    backgroundColor: Colors.primary,
+  },
+  vehicleInfoWrap: {
+    flex: 1,
+    gap: 3,
+  },
+  vehicleTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
   },
   vehicleMain: {
     ...Typography.bodyBold,
     color: Colors.textPrimary,
   },
+  activeBadge: {
+    backgroundColor: Colors.success,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  activeBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: Colors.white,
+    letterSpacing: 0.5,
+  },
   vehicleMeta: {
     ...Typography.caption,
     color: Colors.textSecondary,
+  },
+  tickWrap: {
+    paddingLeft: 4,
+  },
+  emptyVehicleBox: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    gap: 8,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+  },
+  addVehicleBtn: {
+    marginTop: 4,
   },
   menuCard: {
     paddingVertical: 4,
