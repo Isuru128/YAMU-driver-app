@@ -33,6 +33,8 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const { currentLocation, currentAddress, refreshLocation } = useLocation();
   const {
     driverProfile,
+    vehicles,
+    activeVehicle,
     availabilityStatus,
     isOnline,
     isLoadingDriver,
@@ -57,13 +59,13 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
       await toggleOnlineStatus();
     } catch (err: any) {
       Alert.alert(
-        'Cannot Change Status',
-        err?.message || 'Please complete your vehicle registration first.',
+        'Active Vehicle Required',
+        err?.message || 'Please add a vehicle from your Driver Profile and tick an active vehicle before going online.',
         [
           { text: 'Cancel', style: 'cancel' },
           {
-            text: 'Setup Vehicle',
-            onPress: () => navigation.navigate('VehicleManagement'),
+            text: 'Add a vehicle',
+            onPress: () => navigation.navigate('VehicleManagement', { mode: 'add' }),
           },
         ]
       );
@@ -107,8 +109,8 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
         <WhiteThemedMap
           driverCoordinates={currentLocation}
           driverLabel={
-            driverProfile?.vehicle?.licensePlate
-              ? `${driverProfile.vehicle.licensePlate}`
+            activeVehicle?.licensePlate
+              ? `${activeVehicle.licensePlate}`
               : user?.firstName || 'Driver'
           }
           pickupCoordinates={incomingRide?.pickup.coordinates}
@@ -129,17 +131,17 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
             />
           ) : (
             <View style={styles.radarCard}>
-              {/* Vehicle Setup Banner if driver profile not registered in backend */}
-              {!driverProfile?.vehicle ? (
+              {/* Vehicle Setup Banner if no active vehicle registered */}
+              {!activeVehicle ? (
                 <TouchableOpacity
                   style={styles.setupBanner}
-                  onPress={() => navigation.navigate('VehicleManagement')}
+                  onPress={() => navigation.navigate('VehicleManagement', { mode: 'add' })}
                 >
                   <Ionicons name="warning" size={20} color={Colors.secondary} />
                   <View style={styles.setupBannerTextWrap}>
-                    <Text style={styles.setupBannerTitle}>Complete Vehicle Setup</Text>
+                    <Text style={styles.setupBannerTitle}>Add a Vehicle to Go Online</Text>
                     <Text style={styles.setupBannerSub}>
-                      Register your license & vehicle to accept live passenger trips
+                      Register your license & vehicle in Driver Profile and tick an active vehicle
                     </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
@@ -147,21 +149,22 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
               ) : (
                 <TouchableOpacity
                   style={styles.vehicleRow}
-                  onPress={() => navigation.navigate('VehicleManagement')}
+                  onPress={() => navigation.navigate('VehicleManagement', { mode: 'manage' })}
                 >
                   <View style={styles.vehicleBadgeIcon}>
-                    <Ionicons name="car-sport" size={18} color={Colors.white} />
+                    <Ionicons name="checkmark-circle" size={18} color={Colors.white} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.vehicleTitle}>
-                      {driverProfile.vehicle.make} {driverProfile.vehicle.model} (
-                      {driverProfile.vehicle.vehicleType})
+                      Active: {activeVehicle.make} {activeVehicle.model} (
+                      {activeVehicle.vehicleType})
                     </Text>
                     <Text style={styles.vehicleSub}>
-                      {driverProfile.vehicle.licensePlate} • {driverProfile.serviceArea}
+                      {activeVehicle.licensePlate} • {driverProfile?.serviceArea || 'Colombo'}
+                      {vehicles.length > 1 ? ` • ${vehicles.length} vehicles` : ''}
                     </Text>
                   </View>
-                  <Text style={styles.changeLink}>Manage</Text>
+                  <Text style={styles.changeLink}>Switch</Text>
                 </TouchableOpacity>
               )}
 
