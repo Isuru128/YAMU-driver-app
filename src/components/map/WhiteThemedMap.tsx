@@ -41,7 +41,7 @@ export const WhiteThemedMap: React.FC<WhiteThemedMapProps> = ({
   style,
   children,
 }) => {
-  const webViewRef = useRef<WebView | null>(null);
+  const webViewRef = useRef<WebView<Record<string, unknown>> | null>(null);
 
   const leafletHtml = useMemo(() => {
     const centerLat = driverCoordinates.latitude || DEFAULT_COORDS.latitude;
@@ -272,13 +272,12 @@ export const WhiteThemedMap: React.FC<WhiteThemedMapProps> = ({
 
   return (
     <View style={[styles.container, style]}>
-      <WebView
+      <WebView<Record<string, unknown>>
         ref={webViewRef}
         source={{ html: leafletHtml }}
         style={styles.map}
         javaScriptEnabled={true}
         domStorageEnabled={true}
-        scalesPageToFit={true}
         scrollEnabled={false}
         bounces={false}
         overScrollMode="never"
