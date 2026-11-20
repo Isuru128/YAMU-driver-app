@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useCallback, useMemo } from 'react';
 import {
   DriverResponse,
+  DriverVehicle,
   AvailabilityStatus,
   RegisterDriverRequest,
   UpdateVehicleRequest,
@@ -21,6 +22,8 @@ import { storageService } from '../services/storageService';
 
 export interface DriverContextType {
   driverProfile: DriverResponse | null;
+  vehicles: DriverVehicle[];
+  activeVehicle: DriverVehicle | null;
   licenseVerification: DriverLicenseVerification | null;
   availabilityStatus: AvailabilityStatus;
   isOnline: boolean;
@@ -32,6 +35,7 @@ export interface DriverContextType {
   toggleOnlineStatus: () => Promise<void>;
   registerOrUpdateDriverProfile: (request: RegisterDriverRequest) => Promise<DriverResponse>;
   updateDriverVehicle: (request: UpdateVehicleRequest) => Promise<DriverResponse>;
+  selectActiveVehicle: (licensePlate: string) => Promise<void>;
   verifyDriverLicense: (request: VerifyDriverLicenseRequest) => Promise<DriverLicenseVerification>;
   syncDriverLocation: () => Promise<void>;
   refreshDriverData: () => Promise<void>;
@@ -147,6 +151,8 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const { currentLocation, currentAddress } = useLocation();
 
   const [driverProfile, setDriverProfile] = useState<DriverResponse | null>(null);
+  const [vehicles, setVehicles] = useState<DriverVehicle[]>([]);
+  const [activeVehicle, setActiveVehicle] = useState<DriverVehicle | null>(null);
   const [licenseVerification, setLicenseVerification] =
     useState<DriverLicenseVerification | null>(null);
   const [availabilityStatus, setAvailabilityStatus] = useState<AvailabilityStatus>('OFFLINE');
@@ -161,11 +167,20 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!user?.id) return;
     setIsLoadingDriver(true);
     try {
-      // Load stored license verification if present
       try {
         const storedLicense = await storageService.getItem(`driverLicense_${user.id}`);
         if (storedLicense) {
           setLicenseVerification(JSON.parse(storedLicense));
+        }
+      } catch {
+        // ignore
+      }
+
+      let storedVehicles: DriverVehicle[] = [];
+      try {
+        const rawVehicles = await storageService.getItem(`driverVehicles_${user.id}`);
+        if (rawVehicles) {
+          storedVehicles = JSON.parse(rawVehicles);
         }
       } catch {
         // ignore
@@ -176,6 +191,24 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         profile = await driverService.getDriverByUserId(user.id, token || undefined);
         setDriverProfile(profile);
         setAvailabilityStatus(profile.availabilityStatus || 'OFFLINE');
+
+        if (profile.vehicle) {
+          setActiveVehicle(profile.vehicle);
+          const exists = storedVehicles.some(
+            (v) => v.licensePlate.toUpperCase() === profile!.vehicle.licensePlate.toUpperCase()
+          );
+          const mergedVehicles = exists
+            ? storedVehicles.map((v) =>
+                v.licensePlate.toUpperCase() === profile!.vehicle.licensePlate.toUpperCase()
+                  ? profile!.vehicle
+                  : v
+              )
+            : [profile.vehicle, ...storedVehicles];
+          setVehicles(mergedVehicles);
+        } else {
+          setVehicles(storedVehicles);
+          setActiveVehicle(storedVehicles[0] || null);
+        }
 
         if (
           profile.licenseNumber &&
@@ -191,10 +224,10 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           });
         }
       } catch {
-        // Driver operational profile may not be registered yet
+        setVehicles(storedVehicles);
+        setActiveVehicle(storedVehicles[0] || null);
       }
 
-      // Fetch driver rides by userId and by driverProfile.id
       const collectedRides = new Map<string, RideResponse>();
       try {
         const byUser = await rideService.getRidesByDriver(user.id, token || undefined);
@@ -246,6 +279,8 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       refreshDriverData();
     } else {
       setDriverProfile(null);
+      setVehicles([]);
+      setActiveVehicle(null);
       setLicenseVerification(null);
       setAvailabilityStatus('OFFLINE');
       setIncomingRide(null);
@@ -281,6 +316,10 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const nextStatus: AvailabilityStatus =
       availabilityStatus === 'OFFLINE' ? 'AVAILABLE' : 'OFFLINE';
+
+    if (nextStatus === 'AVAILABLE' && !activeVehicle && !driverProfile?.vehicle) {
+      throw new Error('Please register a vehicle before going online.');
+    }
 
     setIsLoadingDriver(true);
     try {
@@ -320,6 +359,24 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
+  const upsertVehicleInList = async (vehicle: DriverVehicle) => {
+    setActiveVehicle(vehicle);
+    setVehicles((prev) => {
+      const exists = prev.some(
+        (v) => v.licensePlate.toUpperCase() === vehicle.licensePlate.toUpperCase()
+      );
+      const next = exists
+        ? prev.map((v) =>
+            v.licensePlate.toUpperCase() === vehicle.licensePlate.toUpperCase() ? vehicle : v
+          )
+        : [vehicle, ...prev];
+      if (user?.id) {
+        storageService.setItem(`driverVehicles_${user.id}`, JSON.stringify(next));
+      }
+      return next;
+    });
+  };
+
   /**
    * Register driver operational profile & vehicle (without requiring license number in vehicle form)
    * POST /api/v1/drivers
@@ -345,6 +402,9 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       );
       setDriverProfile(created);
       setAvailabilityStatus(created.availabilityStatus || 'OFFLINE');
+      if (created.vehicle) {
+        await upsertVehicleInList(created.vehicle);
+      }
       return created;
     } catch (err: any) {
       if (user?.id) {
@@ -356,11 +416,15 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             token || undefined
           );
           setDriverProfile(updated);
+          if (updated.vehicle) {
+            await upsertVehicleInList(updated.vehicle);
+          }
           return updated;
         } catch {
           // ignore
         }
       }
+      await upsertVehicleInList(request.vehicle);
       throw err;
     } finally {
       setIsLoadingDriver(false);
@@ -372,13 +436,15 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    * PUT /api/v1/drivers/{driverId}/vehicle
    */
   const updateDriverVehicle = async (request: UpdateVehicleRequest): Promise<DriverResponse> => {
+    const normalizedVehicle: DriverVehicle = {
+      ...request,
+      color: request.color || 'White',
+    };
+
     if (!driverProfile?.id) {
       return registerOrUpdateDriverProfile({
         serviceArea: 'Colombo',
-        vehicle: {
-          ...request,
-          color: request.color || 'White',
-        },
+        vehicle: normalizedVehicle,
       });
     }
 
@@ -390,9 +456,33 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         token || undefined
       );
       setDriverProfile(updated);
+      await upsertVehicleInList(updated.vehicle || normalizedVehicle);
       return updated;
     } finally {
       setIsLoadingDriver(false);
+    }
+  };
+
+  /**
+   * Switch active vehicle from driver's registered vehicles list
+   */
+  const selectActiveVehicle = async (licensePlate: string) => {
+    const target = vehicles.find(
+      (v) => v.licensePlate.toUpperCase() === licensePlate.toUpperCase()
+    );
+    if (!target) return;
+    setActiveVehicle(target);
+    if (driverProfile?.id) {
+      try {
+        const updated = await driverService.updateVehicle(
+          driverProfile.id,
+          target,
+          token || undefined
+        );
+        setDriverProfile(updated);
+      } catch {
+        // keep local active vehicle
+      }
     }
   };
 
@@ -434,7 +524,6 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           );
           setDriverProfile(updated);
         } catch {
-          // Keep local update if backend endpoint isn't redeployed on Render yet
           setDriverProfile((prev) =>
             prev
               ? {
@@ -479,7 +568,7 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const sampleIdx = Math.floor(Math.random() * SAMPLE_ROUTES.length);
     const route = SAMPLE_ROUTES[sampleIdx];
     const passenger = SAMPLE_PASSENGERS[sampleIdx % SAMPLE_PASSENGERS.length];
-    const vType = driverProfile?.vehicle?.vehicleType || VehicleType.TUK;
+    const vType = activeVehicle?.vehicleType || driverProfile?.vehicle?.vehicleType || VehicleType.TUK;
 
     const simulated: DriverTripRecord = {
       id: `ride_sim_${Date.now()}`,
@@ -691,6 +780,8 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     <DriverContext.Provider
       value={{
         driverProfile,
+        vehicles,
+        activeVehicle,
         licenseVerification,
         availabilityStatus,
         isOnline,
@@ -702,6 +793,7 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         toggleOnlineStatus,
         registerOrUpdateDriverProfile,
         updateDriverVehicle,
+        selectActiveVehicle,
         verifyDriverLicense,
         syncDriverLocation,
         refreshDriverData,
