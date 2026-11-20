@@ -4,6 +4,7 @@ import {
   DriverResponse,
   RegisterDriverRequest,
   UpdateVehicleRequest,
+  VerifyDriverLicenseRequest,
   UpdateAvailabilityRequest,
   UpdateLocationRequest,
 } from '../types/driver';
@@ -11,8 +12,8 @@ import { VehicleType } from '../constants/rideConstants';
 
 /**
  * DriverService connects to Driver & Vehicle Service (Spring Boot microservice on port 8081).
- * Handles driver operational profile registration, vehicle management, availability toggling,
- * and live GPS location updates.
+ * Handles driver operational profile registration, vehicle management, license verification,
+ * availability toggling, and live GPS location updates.
  */
 export class DriverService {
   /**
@@ -61,6 +62,23 @@ export class DriverService {
   ): Promise<DriverResponse> {
     return driverApiClient.put<DriverResponse>(
       ENDPOINTS.DRIVERS.UPDATE_VEHICLE(driverId),
+      request,
+      { token }
+    );
+  }
+
+  /**
+   * Verify or update driver's license details & Cloudinary photo URLs
+   * PUT /api/v1/drivers/{driverId}/license
+   * Access: DRIVER / ADMIN
+   */
+  async updateLicense(
+    driverId: string,
+    request: VerifyDriverLicenseRequest,
+    token?: string
+  ): Promise<DriverResponse> {
+    return driverApiClient.put<DriverResponse>(
+      ENDPOINTS.DRIVERS.UPDATE_LICENSE(driverId),
       request,
       { token }
     );
@@ -122,4 +140,3 @@ export class DriverService {
 }
 
 export const driverService = new DriverService();
-
