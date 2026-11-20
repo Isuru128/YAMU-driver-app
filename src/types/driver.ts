@@ -3,7 +3,6 @@ import { VehicleType } from '../constants/rideConstants';
 export type AvailabilityStatus = 'AVAILABLE' | 'ON_TRIP' | 'OFFLINE';
 
 export interface DriverVehicle {
-  id?: string;
   licensePlate: string;
   make: string;
   model: string;
@@ -11,7 +10,6 @@ export interface DriverVehicle {
   color: string;
   vehicleType: VehicleType;
   capacity?: number;
-  isActive?: boolean;
 }
 
 export interface DriverLocation {
@@ -21,10 +19,23 @@ export interface DriverLocation {
   lastUpdated?: string;
 }
 
+export interface DriverLicenseVerification {
+  licenseNumber: string;
+  expiryDate: string;
+  frontImageUrl: string;
+  backImageUrl: string;
+  verifiedAt?: string;
+  isVerified: boolean;
+}
+
 export interface DriverResponse {
   id: string;
   userId: string;
   licenseNumber: string;
+  licenseExpiryDate?: string;
+  licenseFrontImageUrl?: string;
+  licenseBackImageUrl?: string;
+  licenseVerified?: boolean;
   availabilityStatus: AvailabilityStatus;
   serviceArea: string;
   currentLocation?: DriverLocation;
@@ -38,9 +49,19 @@ export interface DriverResponse {
 
 export interface RegisterDriverRequest {
   userId?: string;
-  licenseNumber: string;
+  licenseNumber?: string;
   serviceArea: string;
   vehicle: DriverVehicle;
+  licenseExpiryDate?: string;
+  licenseFrontImageUrl?: string;
+  licenseBackImageUrl?: string;
+}
+
+export interface VerifyDriverLicenseRequest {
+  licenseNumber: string;
+  expiryDate: string;
+  frontImageUrl: string;
+  backImageUrl: string;
 }
 
 export interface UpdateVehicleRequest {
@@ -73,4 +94,3 @@ export interface DriverEarningsSummary {
   onlineHoursToday: number;
   walletBalance: number;
 }
-
