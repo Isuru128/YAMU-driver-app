@@ -17,9 +17,9 @@ export type RootStackParamList = {
   Auth: undefined;
   MainTabs: undefined;
   ActiveTrip: undefined;
-  VehicleManagement: { mode?: 'add' | 'manage' } | undefined;
+  VehicleManagement: undefined;
+  LicenseVerification: undefined;
   TripDetails: { trip: DriverTripRecord };
   EditProfile: undefined;
   EmergencySupport: undefined;
 };
-
