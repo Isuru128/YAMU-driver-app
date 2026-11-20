@@ -17,8 +17,10 @@ import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
 import { Colors } from '../../constants/colors';
 import { Typography } from '../../constants/typography';
+import { VehicleType, VEHICLE_OPTIONS } from '../../constants/rideConstants';
 import { isValidEmail, isValidSriLankanPhone } from '../../utils/validators';
 import { useAuth } from '../../hooks/useAuth';
+import { driverService } from '../../services/driverService';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
 
@@ -32,6 +34,14 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  // Vehicle registration fields (driving license verification is done separately via "Verify Driver's License")
+  const [serviceArea, setServiceArea] = useState('Colombo');
+  const [vehicleType, setVehicleType] = useState<VehicleType>(VehicleType.TUK);
+  const [licensePlate, setLicensePlate] = useState('');
+  const [vehicleMake, setVehicleMake] = useState('');
+  const [vehicleModel, setVehicleModel] = useState('');
+  const [vehicleColor, setVehicleColor] = useState('Red');
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
@@ -55,6 +65,15 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
     if (!password || password.length < 6) {
       errs.password = 'Password must be at least 6 characters';
     }
+    if (!licensePlate.trim()) {
+      errs.licensePlate = 'Vehicle license plate is required (e.g. WP AA-4521)';
+    }
+    if (!vehicleMake.trim()) {
+      errs.vehicleMake = 'Vehicle make is required (e.g. Bajaj, Toyota)';
+    }
+    if (!vehicleModel.trim()) {
+      errs.vehicleModel = 'Vehicle model is required (e.g. RE 4S, Aqua)';
+    }
 
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -66,15 +85,41 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
 
     setSubmitting(true);
     try {
-      // Register DRIVER account in Account Service
-      await register({
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        email: email.trim(),
+      const authRes = await register({
+        firstName,
+        lastName,
+        email,
         password,
-        phoneNumber: phoneNumber.trim(),
+        phoneNumber,
         role: 'DRIVER',
       });
+
+      try {
+        const selectedOption = VEHICLE_OPTIONS.find((v) => v.id === vehicleType);
+        const placeholderLicense = `PENDING-${(authRes.account?.id || String(Date.now()))
+          .slice(-6)
+          .toUpperCase()}`;
+
+        await driverService.registerDriver(
+          {
+            userId: authRes.account?.id,
+            licenseNumber: placeholderLicense,
+            serviceArea: serviceArea.trim() || 'Colombo',
+            vehicle: {
+              licensePlate: licensePlate.trim().toUpperCase(),
+              make: vehicleMake.trim(),
+              model: vehicleModel.trim(),
+              year: 2022,
+              color: vehicleColor.trim() || 'White',
+              vehicleType,
+              capacity: selectedOption?.capacity || 3,
+            },
+          },
+          authRes.token
+        );
+      } catch (driverErr) {
+        console.warn('Driver vehicle setup notice:', driverErr);
+      }
     } catch (err: any) {
       const msg = err?.message || 'Driver registration failed. Please check your details.';
       setGeneralError(msg);
@@ -93,9 +138,7 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
           <View style={styles.brandHeader}>
             <Text style={styles.logoText}>YAMU DRIVER</Text>
-            <Text style={styles.tagline}>
-              Create your driver partner account. You can add and manage your vehicles from your profile after signing in.
-            </Text>
+            <Text style={styles.tagline}>Register your driver account & vehicle</Text>
           </View>
 
           {generalError && (
@@ -106,7 +149,7 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
           )}
 
           <View style={styles.formSection}>
-            <Text style={styles.sectionHeader}>Personal Details</Text>
+            <Text style={styles.sectionHeader}>1. Personal Details</Text>
             <View style={styles.nameRow}>
               <View style={styles.halfInput}>
                 <Input
@@ -183,8 +226,100 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
               onRightIconPress={() => setShowPassword((prev) => !prev)}
             />
 
+            <Text style={[styles.sectionHeader, { marginTop: 12 }]}>
+              2. Vehicle Registration
+            </Text>
+
+            <Input
+              label="Service City"
+              placeholder="Colombo"
+              value={serviceArea}
+              onChangeText={setServiceArea}
+            />
+
+            <Text style={styles.fieldLabel}>VEHICLE CATEGORY</Text>
+            <View style={styles.vehicleTypeRow}>
+              {VEHICLE_OPTIONS.map((v) => {
+                const selected = vehicleType === v.id;
+                return (
+                  <TouchableOpacity
+                    key={v.id}
+                    style={[styles.vTypeChip, selected && styles.vTypeChipActive]}
+                    onPress={() => setVehicleType(v.id)}
+                  >
+                    <Ionicons
+                      name={v.iconName as any}
+                      size={18}
+                      color={selected ? Colors.white : Colors.textPrimary}
+                    />
+                    <Text style={[styles.vTypeText, selected && styles.vTypeTextActive]}>
+                      {v.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.nameRow}>
+              <View style={styles.halfInput}>
+                <Input
+                  label="License Plate"
+                  placeholder="WP AA-4521"
+                  value={licensePlate}
+                  onChangeText={(val) => {
+                    setLicensePlate(val);
+                    if (errors.licensePlate) setErrors((prev) => ({ ...prev, licensePlate: '' }));
+                  }}
+                  autoCapitalize="characters"
+                  error={errors.licensePlate}
+                />
+              </View>
+              <View style={styles.halfInput}>
+                <Input
+                  label="Color"
+                  placeholder="Red / White"
+                  value={vehicleColor}
+                  onChangeText={setVehicleColor}
+                />
+              </View>
+            </View>
+
+            <View style={styles.nameRow}>
+              <View style={styles.halfInput}>
+                <Input
+                  label="Vehicle Make"
+                  placeholder="Bajaj / Toyota"
+                  value={vehicleMake}
+                  onChangeText={(val) => {
+                    setVehicleMake(val);
+                    if (errors.vehicleMake) setErrors((prev) => ({ ...prev, vehicleMake: '' }));
+                  }}
+                  error={errors.vehicleMake}
+                />
+              </View>
+              <View style={styles.halfInput}>
+                <Input
+                  label="Vehicle Model"
+                  placeholder="RE 4S / Aqua"
+                  value={vehicleModel}
+                  onChangeText={(val) => {
+                    setVehicleModel(val);
+                    if (errors.vehicleModel) setErrors((prev) => ({ ...prev, vehicleModel: '' }));
+                  }}
+                  error={errors.vehicleModel}
+                />
+              </View>
+            </View>
+
+            <View style={styles.licenseHintBox}>
+              <Ionicons name="id-card-outline" size={18} color={Colors.primary} />
+              <Text style={styles.licenseHintText}>
+                You can verify your Driver’s License (front & back photos and expiry date) right after creating your account.
+              </Text>
+            </View>
+
             <Button
-              title="Create Driver Account"
+              title="Complete Driver Registration"
               onPress={handleRegister}
               loading={isLoading || submitting}
               style={styles.submitButton}
@@ -227,7 +362,6 @@ const styles = StyleSheet.create({
     ...Typography.subtitle,
     color: Colors.textSecondary,
     marginTop: 4,
-    textAlign: 'center',
   },
   errorBanner: {
     flexDirection: 'row',
@@ -296,6 +430,22 @@ const styles = StyleSheet.create({
   vTypeTextActive: {
     color: Colors.white,
   },
+  licenseHintBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 12,
+    padding: 12,
+    gap: 10,
+    marginBottom: 8,
+  },
+  licenseHintText: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    flex: 1,
+  },
   submitButton: {
     marginTop: 10,
   },
@@ -315,4 +465,3 @@ const styles = StyleSheet.create({
     color: Colors.primary,
   },
 });
-
