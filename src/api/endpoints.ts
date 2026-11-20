@@ -11,6 +11,7 @@ export const ENDPOINTS = {
     GET_BY_ID: (id: string) => `/api/v1/drivers/${id}`,
     GET_BY_USER_ID: (userId: string) => `/api/v1/drivers/user/${userId}`,
     UPDATE_VEHICLE: (driverId: string) => `/api/v1/drivers/${driverId}/vehicle`,
+    UPDATE_LICENSE: (driverId: string) => `/api/v1/drivers/${driverId}/license`,
     UPDATE_AVAILABILITY: (driverId: string) => `/api/v1/drivers/${driverId}/availability`,
     UPDATE_LOCATION: (driverId: string) => `/api/v1/drivers/${driverId}/location`,
   },
@@ -38,4 +39,3 @@ export const ENDPOINTS = {
     GET_RECEIPT_BY_RIDE: (rideId: string) => `/api/v1/payments/receipts/ride/${rideId}`,
   },
 };
-
