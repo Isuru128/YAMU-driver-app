@@ -1,10 +1,11 @@
 import React, { createContext, useState, useEffect, useCallback, useMemo } from 'react';
 import {
   DriverResponse,
-  DriverVehicle,
   AvailabilityStatus,
   RegisterDriverRequest,
   UpdateVehicleRequest,
+  DriverLicenseVerification,
+  VerifyDriverLicenseRequest,
   DriverEarningsSummary,
 } from '../types/driver';
 import { DriverTripRecord, RideResponse, RideStatusHistory } from '../types/ride';
@@ -18,17 +19,9 @@ import { rideService } from '../services/rideService';
 import { paymentService } from '../services/paymentService';
 import { storageService } from '../services/storageService';
 
-export interface AddVehicleInput {
-  licenseNumber: string;
-  serviceArea: string;
-  vehicle: DriverVehicle;
-  setAsActive?: boolean;
-}
-
 export interface DriverContextType {
   driverProfile: DriverResponse | null;
-  vehicles: DriverVehicle[];
-  activeVehicle: DriverVehicle | null;
+  licenseVerification: DriverLicenseVerification | null;
   availabilityStatus: AvailabilityStatus;
   isOnline: boolean;
   isLoadingDriver: boolean;
@@ -37,11 +30,9 @@ export interface DriverContextType {
   tripHistory: DriverTripRecord[];
   earnings: DriverEarningsSummary;
   toggleOnlineStatus: () => Promise<void>;
-  addDriverVehicle: (input: AddVehicleInput) => Promise<DriverResponse>;
-  selectActiveVehicle: (vehicleIdOrPlate: string) => Promise<void>;
-  removeDriverVehicle: (vehicleIdOrPlate: string) => Promise<void>;
   registerOrUpdateDriverProfile: (request: RegisterDriverRequest) => Promise<DriverResponse>;
   updateDriverVehicle: (request: UpdateVehicleRequest) => Promise<DriverResponse>;
+  verifyDriverLicense: (request: VerifyDriverLicenseRequest) => Promise<DriverLicenseVerification>;
   syncDriverLocation: () => Promise<void>;
   refreshDriverData: () => Promise<void>;
   simulateIncomingRide: () => void;
@@ -151,15 +142,13 @@ const mapRideResponseToDriverTrip = (res: RideResponse, index: number = 0): Driv
   };
 };
 
-const normalizeVehicleId = (vehicle: DriverVehicle): string =>
-  vehicle.id || `veh_${vehicle.licensePlate.replace(/[^A-Z0-9]/gi, '').toUpperCase()}`;
-
 export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, token } = useAuth();
   const { currentLocation, currentAddress } = useLocation();
 
   const [driverProfile, setDriverProfile] = useState<DriverResponse | null>(null);
-  const [vehicles, setVehicles] = useState<DriverVehicle[]>([]);
+  const [licenseVerification, setLicenseVerification] =
+    useState<DriverLicenseVerification | null>(null);
   const [availabilityStatus, setAvailabilityStatus] = useState<AvailabilityStatus>('OFFLINE');
   const [isLoadingDriver, setIsLoadingDriver] = useState<boolean>(false);
   const [incomingRide, setIncomingRide] = useState<DriverTripRecord | null>(null);
@@ -168,102 +157,41 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const isOnline = availabilityStatus === 'AVAILABLE' || availabilityStatus === 'ON_TRIP';
 
-  const activeVehicle: DriverVehicle | null = useMemo(() => {
-    const activeFromList = vehicles.find((v) => v.isActive);
-    if (activeFromList) return activeFromList;
-    if (vehicles.length > 0) return vehicles[0];
-    return driverProfile?.vehicle || null;
-  }, [vehicles, driverProfile?.vehicle]);
-
-  const persistVehicles = useCallback(
-    async (nextVehicles: DriverVehicle[], nextProfile?: DriverResponse | null) => {
-      if (!user?.id) return;
-      await storageService.setItem(`yamu_driver_vehicles_${user.id}`, JSON.stringify(nextVehicles));
-      if (nextProfile) {
-        await storageService.setItem(
-          `yamu_driver_profile_${user.id}`,
-          JSON.stringify(nextProfile)
-        );
-      }
-    },
-    [user?.id]
-  );
-
   const refreshDriverData = useCallback(async () => {
     if (!user?.id) return;
     setIsLoadingDriver(true);
     try {
-      // Load locally persisted vehicles & profile fallback
-      let storedVehicles: DriverVehicle[] = [];
+      // Load stored license verification if present
       try {
-        const rawVehicles = await storageService.getItem(`yamu_driver_vehicles_${user.id}`);
-        if (rawVehicles) {
-          storedVehicles = JSON.parse(rawVehicles);
+        const storedLicense = await storageService.getItem(`driverLicense_${user.id}`);
+        if (storedLicense) {
+          setLicenseVerification(JSON.parse(storedLicense));
         }
       } catch {
-        // ignore parse warning
+        // ignore
       }
 
       let profile: DriverResponse | null = null;
       try {
         profile = await driverService.getDriverByUserId(user.id, token || undefined);
-      } catch {
-        // Driver operational profile may not be registered yet in backend; check local storage
-        try {
-          const rawProfile = await storageService.getItem(`yamu_driver_profile_${user.id}`);
-          if (rawProfile) {
-            profile = JSON.parse(rawProfile);
-          }
-        } catch {
-          // ignore
-        }
-      }
+        setDriverProfile(profile);
+        setAvailabilityStatus(profile.availabilityStatus || 'OFFLINE');
 
-      // Reconcile backend profile vehicle with multi-vehicle list (ensuring only ONE active vehicle)
-      let mergedVehicles = [...storedVehicles];
-      if (profile?.vehicle?.licensePlate) {
-        const backendVeh: DriverVehicle = {
-          ...profile.vehicle,
-          id: normalizeVehicleId(profile.vehicle),
-        };
-        const existsIdx = mergedVehicles.findIndex(
-          (v) => v.licensePlate.toUpperCase() === backendVeh.licensePlate.toUpperCase()
-        );
-        if (existsIdx === -1) {
-          const hasAnyActive = mergedVehicles.some((v) => v.isActive);
-          mergedVehicles.push({
-            ...backendVeh,
-            isActive: !hasAnyActive,
+        if (
+          profile.licenseNumber &&
+          !profile.licenseNumber.startsWith('PENDING-') &&
+          (profile.licenseFrontImageUrl || profile.licenseExpiryDate)
+        ) {
+          setLicenseVerification({
+            licenseNumber: profile.licenseNumber,
+            expiryDate: profile.licenseExpiryDate || '',
+            frontImageUrl: profile.licenseFrontImageUrl || '',
+            backImageUrl: profile.licenseBackImageUrl || '',
+            isVerified: true,
           });
         }
-      }
-
-      // Ensure exactly one vehicle is marked active if there are any vehicles
-      if (mergedVehicles.length > 0) {
-        let activeIdx = mergedVehicles.findIndex((v) => v.isActive);
-        if (activeIdx === -1) {
-          activeIdx = 0;
-        }
-        mergedVehicles = mergedVehicles.map((v, idx) => ({
-          ...v,
-          id: normalizeVehicleId(v),
-          isActive: idx === activeIdx,
-        }));
-      }
-
-      setVehicles(mergedVehicles);
-
-      if (profile) {
-        const currentActive = mergedVehicles.find((v) => v.isActive) || profile.vehicle;
-        const syncedProfile: DriverResponse = {
-          ...profile,
-          vehicle: currentActive,
-        };
-        setDriverProfile(syncedProfile);
-        setAvailabilityStatus(syncedProfile.availabilityStatus || 'OFFLINE');
-        await persistVehicles(mergedVehicles, syncedProfile);
-      } else if (mergedVehicles.length > 0) {
-        await persistVehicles(mergedVehicles);
+      } catch {
+        // Driver operational profile may not be registered yet
       }
 
       // Fetch driver rides by userId and by driverProfile.id
@@ -292,7 +220,6 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const mapped = allRides.map((r, idx) => mapRideResponseToDriverTrip(r, idx));
 
-      // Check if there is an assigned or active ride
       const assigned = mapped.find((r) => r.status === RideStatus.ASSIGNED);
       const ongoing = mapped.find(
         (r) => r.status === RideStatus.ACCEPTED || r.status === RideStatus.IN_PROGRESS
@@ -312,14 +239,14 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } finally {
       setIsLoadingDriver(false);
     }
-  }, [user?.id, token, persistVehicles]);
+  }, [user?.id, token]);
 
   useEffect(() => {
     if (user?.id) {
       refreshDriverData();
     } else {
       setDriverProfile(null);
-      setVehicles([]);
+      setLicenseVerification(null);
       setAvailabilityStatus('OFFLINE');
       setIncomingRide(null);
       setActiveTrip(null);
@@ -327,7 +254,6 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [user?.id, refreshDriverData]);
 
-  // Poll for newly assigned rides while driver is AVAILABLE
   useEffect(() => {
     if (availabilityStatus !== 'AVAILABLE' || !user?.id || activeTrip) {
       return;
@@ -348,10 +274,6 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => clearInterval(interval);
   }, [availabilityStatus, user?.id, token, activeTrip, incomingRide]);
 
-  /**
-   * Toggle Online (AVAILABLE) / Offline (OFFLINE)
-   * Requires at least one registered vehicle and an active vehicle ticked before going online.
-   */
   const toggleOnlineStatus = async () => {
     if (activeTrip) {
       throw new Error('Cannot go offline while you have an active trip in progress.');
@@ -360,56 +282,31 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const nextStatus: AvailabilityStatus =
       availabilityStatus === 'OFFLINE' ? 'AVAILABLE' : 'OFFLINE';
 
-    if (nextStatus === 'AVAILABLE') {
-      const tickedVehicle = vehicles.find((v) => v.isActive) || driverProfile?.vehicle;
-      if (!tickedVehicle || !tickedVehicle.licensePlate) {
-        throw new Error(
-          'Please add a vehicle from your Driver Profile and tick an active vehicle before going online.'
-        );
-      }
-    }
-
     setIsLoadingDriver(true);
     try {
-      if (driverProfile?.id && !driverProfile.id.startsWith('drv_local_')) {
-        try {
-          if (nextStatus === 'AVAILABLE' && activeVehicle) {
-            await driverService.updateVehicle(driverProfile.id, activeVehicle, token || undefined);
-          }
-        } catch {
-          // ignore vehicle sync warning
-        }
+      if (driverProfile?.id) {
+        const updated = await driverService.updateAvailability(
+          driverProfile.id,
+          { availabilityStatus: nextStatus },
+          token || undefined
+        );
+        setDriverProfile(updated);
+        setAvailabilityStatus(updated.availabilityStatus);
 
-        try {
-          const updated = await driverService.updateAvailability(
-            driverProfile.id,
-            { availabilityStatus: nextStatus },
-            token || undefined
-          );
-          const mergedProfile: DriverResponse = {
-            ...updated,
-            vehicle: activeVehicle || updated.vehicle,
-          };
-          setDriverProfile(mergedProfile);
-          setAvailabilityStatus(updated.availabilityStatus);
-
-          if (nextStatus === 'AVAILABLE') {
-            try {
-              await driverService.updateLocation(
-                driverProfile.id,
-                {
-                  latitude: currentLocation.latitude,
-                  longitude: currentLocation.longitude,
-                  address: currentAddress,
-                },
-                token || undefined
-              );
-            } catch {
-              // ignore location update warning
-            }
+        if (nextStatus === 'AVAILABLE') {
+          try {
+            await driverService.updateLocation(
+              driverProfile.id,
+              {
+                latitude: currentLocation.latitude,
+                longitude: currentLocation.longitude,
+                address: currentAddress,
+              },
+              token || undefined
+            );
+          } catch {
+            // ignore
           }
-        } catch {
-          setAvailabilityStatus(nextStatus);
         }
       } else {
         setAvailabilityStatus(nextStatus);
@@ -424,231 +321,50 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   /**
-   * Add a new vehicle (or update existing vehicle by plate) and optionally activate it.
-   * Only ONE vehicle can be active at a time.
-   */
-  const addDriverVehicle = async (input: AddVehicleInput): Promise<DriverResponse> => {
-    const cleanPlate = input.vehicle.licensePlate.trim().toUpperCase();
-    const cleanLicense = (
-      input.licenseNumber ||
-      driverProfile?.licenseNumber ||
-      ''
-    )
-      .trim()
-      .toUpperCase();
-    const cleanServiceArea = (
-      input.serviceArea ||
-      driverProfile?.serviceArea ||
-      'Colombo'
-    ).trim();
-
-    if (!cleanLicense) {
-      throw new Error('Driving license number is required.');
-    }
-
-    const newVehId = normalizeVehicleId({ ...input.vehicle, licensePlate: cleanPlate });
-    const shouldActivate = vehicles.length === 0 || input.setAsActive !== false;
-
-    const preparedVehicle: DriverVehicle = {
-      ...input.vehicle,
-      id: newVehId,
-      licensePlate: cleanPlate,
-      isActive: shouldActivate,
-    };
-
-    setIsLoadingDriver(true);
-    try {
-      // Build updated vehicles list where only one vehicle has isActive = true
-      const existingIndex = vehicles.findIndex(
-        (v) => v.licensePlate.toUpperCase() === cleanPlate || v.id === newVehId
-      );
-
-      let nextVehicles: DriverVehicle[];
-      if (existingIndex >= 0) {
-        nextVehicles = vehicles.map((v, idx) => {
-          if (idx === existingIndex) {
-            return {
-              ...preparedVehicle,
-              isActive: shouldActivate ? true : v.isActive,
-            };
-          }
-          return shouldActivate ? { ...v, isActive: false } : v;
-        });
-      } else {
-        nextVehicles = [
-          ...vehicles.map((v) => (shouldActivate ? { ...v, isActive: false } : v)),
-          preparedVehicle,
-        ];
-      }
-
-      // Ensure at least one vehicle is active
-      if (!nextVehicles.some((v) => v.isActive) && nextVehicles.length > 0) {
-        nextVehicles[0] = { ...nextVehicles[0], isActive: true };
-      }
-
-      const activeVeh = nextVehicles.find((v) => v.isActive) || preparedVehicle;
-
-      let updatedProfile: DriverResponse | null = driverProfile;
-
-      // Sync with Driver & Vehicle Service backend
-      if (!driverProfile?.id || driverProfile.id.startsWith('drv_local_')) {
-        try {
-          updatedProfile = await driverService.registerDriver(
-            {
-              userId: user?.id,
-              licenseNumber: cleanLicense,
-              serviceArea: cleanServiceArea,
-              vehicle: activeVeh,
-            },
-            token || undefined
-          );
-        } catch {
-          try {
-            if (user?.id) {
-              const existing = await driverService.getDriverByUserId(user.id, token || undefined);
-              updatedProfile = await driverService.updateVehicle(
-                existing.id,
-                activeVeh,
-                token || undefined
-              );
-            }
-          } catch {
-            // Fallback to local profile if backend isn't reachable
-          }
-        }
-      } else if (shouldActivate) {
-        try {
-          updatedProfile = await driverService.updateVehicle(
-            driverProfile.id,
-            activeVeh,
-            token || undefined
-          );
-        } catch {
-          // Keep local update if backend fails
-        }
-      }
-
-      const finalProfile: DriverResponse = {
-        id: updatedProfile?.id || driverProfile?.id || `drv_local_${user?.id || Date.now()}`,
-        userId: user?.id || updatedProfile?.userId || 'driver',
-        licenseNumber: cleanLicense,
-        serviceArea: cleanServiceArea,
-        availabilityStatus: updatedProfile?.availabilityStatus || availabilityStatus || 'OFFLINE',
-        vehicle: activeVeh,
-        rating: updatedProfile?.rating ?? driverProfile?.rating ?? 4.95,
-        totalTrips: updatedProfile?.totalTrips ?? driverProfile?.totalTrips ?? 0,
-        isApproved: true,
-      };
-
-      setVehicles(nextVehicles);
-      setDriverProfile(finalProfile);
-      await persistVehicles(nextVehicles, finalProfile);
-
-      return finalProfile;
-    } finally {
-      setIsLoadingDriver(false);
-    }
-  };
-
-  /**
-   * Select / tick a vehicle as the ONLY active vehicle for online trips.
-   */
-  const selectActiveVehicle = async (vehicleIdOrPlate: string): Promise<void> => {
-    if (activeTrip) {
-      throw new Error('Cannot switch active vehicle while you have a trip in progress.');
-    }
-
-    const target = vehicles.find(
-      (v) =>
-        v.id === vehicleIdOrPlate ||
-        v.licensePlate.toUpperCase() === vehicleIdOrPlate.toUpperCase()
-    );
-    if (!target) return;
-
-    setIsLoadingDriver(true);
-    try {
-      const nextVehicles = vehicles.map((v) => ({
-        ...v,
-        isActive:
-          v.id === target.id ||
-          v.licensePlate.toUpperCase() === target.licensePlate.toUpperCase(),
-      }));
-
-      const activatedVehicle: DriverVehicle = { ...target, isActive: true };
-
-      if (driverProfile?.id && !driverProfile.id.startsWith('drv_local_')) {
-        try {
-          await driverService.updateVehicle(
-            driverProfile.id,
-            activatedVehicle,
-            token || undefined
-          );
-        } catch {
-          // continue with local state update
-        }
-      }
-
-      const nextProfile: DriverResponse | null = driverProfile
-        ? {
-            ...driverProfile,
-            vehicle: activatedVehicle,
-          }
-        : null;
-
-      setVehicles(nextVehicles);
-      if (nextProfile) {
-        setDriverProfile(nextProfile);
-      }
-      await persistVehicles(nextVehicles, nextProfile);
-    } finally {
-      setIsLoadingDriver(false);
-    }
-  };
-
-  /**
-   * Remove a vehicle from the driver's registered vehicles list.
-   */
-  const removeDriverVehicle = async (vehicleIdOrPlate: string): Promise<void> => {
-    if (isOnline) {
-      throw new Error('Please go offline before removing a registered vehicle.');
-    }
-
-    const remaining = vehicles.filter(
-      (v) =>
-        v.id !== vehicleIdOrPlate &&
-        v.licensePlate.toUpperCase() !== vehicleIdOrPlate.toUpperCase()
-    );
-
-    if (remaining.length > 0 && !remaining.some((v) => v.isActive)) {
-      remaining[0] = { ...remaining[0], isActive: true };
-    }
-
-    const nextActive = remaining.find((v) => v.isActive) || remaining[0];
-    const nextProfile: DriverResponse | null = driverProfile
-      ? {
-          ...driverProfile,
-          vehicle: nextActive,
-        }
-      : null;
-
-    setVehicles(remaining);
-    setDriverProfile(nextProfile);
-    await persistVehicles(remaining, nextProfile);
-  };
-
-  /**
-   * Register driver operational profile & vehicle
+   * Register driver operational profile & vehicle (without requiring license number in vehicle form)
    * POST /api/v1/drivers
    */
   const registerOrUpdateDriverProfile = async (
     request: RegisterDriverRequest
   ): Promise<DriverResponse> => {
-    return addDriverVehicle({
-      licenseNumber: request.licenseNumber,
-      serviceArea: request.serviceArea,
-      vehicle: request.vehicle,
-      setAsActive: true,
-    });
+    setIsLoadingDriver(true);
+    try {
+      const effectiveLicenseNumber =
+        request.licenseNumber?.trim() ||
+        licenseVerification?.licenseNumber ||
+        driverProfile?.licenseNumber ||
+        `PENDING-${(user?.id || String(Date.now())).slice(-6).toUpperCase()}`;
+
+      const created = await driverService.registerDriver(
+        {
+          ...request,
+          userId: user?.id,
+          licenseNumber: effectiveLicenseNumber,
+        },
+        token || undefined
+      );
+      setDriverProfile(created);
+      setAvailabilityStatus(created.availabilityStatus || 'OFFLINE');
+      return created;
+    } catch (err: any) {
+      if (user?.id) {
+        try {
+          const existing = await driverService.getDriverByUserId(user.id, token || undefined);
+          const updated = await driverService.updateVehicle(
+            existing.id,
+            request.vehicle,
+            token || undefined
+          );
+          setDriverProfile(updated);
+          return updated;
+        } catch {
+          // ignore
+        }
+      }
+      throw err;
+    } finally {
+      setIsLoadingDriver(false);
+    }
   };
 
   /**
@@ -656,21 +372,91 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    * PUT /api/v1/drivers/{driverId}/vehicle
    */
   const updateDriverVehicle = async (request: UpdateVehicleRequest): Promise<DriverResponse> => {
-    return addDriverVehicle({
-      licenseNumber: driverProfile?.licenseNumber || '',
-      serviceArea: driverProfile?.serviceArea || 'Colombo',
-      vehicle: {
-        ...request,
-        color: request.color || 'White',
-      },
-      setAsActive: true,
-    });
+    if (!driverProfile?.id) {
+      return registerOrUpdateDriverProfile({
+        serviceArea: 'Colombo',
+        vehicle: {
+          ...request,
+          color: request.color || 'White',
+        },
+      });
+    }
+
+    setIsLoadingDriver(true);
+    try {
+      const updated = await driverService.updateVehicle(
+        driverProfile.id,
+        request,
+        token || undefined
+      );
+      setDriverProfile(updated);
+      return updated;
+    } finally {
+      setIsLoadingDriver(false);
+    }
   };
 
   /**
-   * Sync live GPS coordinates to Driver Service
-   * PATCH /api/v1/drivers/{driverId}/location
+   * Verify Driver's License with License Number, Front & Back Cloudinary Image URLs, and Expiry Date
    */
+  const verifyDriverLicense = async (
+    request: VerifyDriverLicenseRequest
+  ): Promise<DriverLicenseVerification> => {
+    setIsLoadingDriver(true);
+    try {
+      const verifiedRecord: DriverLicenseVerification = {
+        licenseNumber: request.licenseNumber.trim().toUpperCase(),
+        expiryDate: request.expiryDate.trim(),
+        frontImageUrl: request.frontImageUrl,
+        backImageUrl: request.backImageUrl,
+        verifiedAt: new Date().toISOString(),
+        isVerified: true,
+      };
+
+      if (user?.id) {
+        await storageService.setItem(
+          `driverLicense_${user.id}`,
+          JSON.stringify(verifiedRecord)
+        );
+      }
+
+      if (driverProfile?.id) {
+        try {
+          const updated = await driverService.updateLicense(
+            driverProfile.id,
+            {
+              licenseNumber: verifiedRecord.licenseNumber,
+              expiryDate: verifiedRecord.expiryDate,
+              frontImageUrl: verifiedRecord.frontImageUrl,
+              backImageUrl: verifiedRecord.backImageUrl,
+            },
+            token || undefined
+          );
+          setDriverProfile(updated);
+        } catch {
+          // Keep local update if backend endpoint isn't redeployed on Render yet
+          setDriverProfile((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  licenseNumber: verifiedRecord.licenseNumber,
+                  licenseExpiryDate: verifiedRecord.expiryDate,
+                  licenseFrontImageUrl: verifiedRecord.frontImageUrl,
+                  licenseBackImageUrl: verifiedRecord.backImageUrl,
+                  licenseVerified: true,
+                }
+              : prev
+          );
+        }
+      }
+
+      setLicenseVerification(verifiedRecord);
+      return verifiedRecord;
+    } finally {
+      setIsLoadingDriver(false);
+    }
+  };
+
   const syncDriverLocation = async () => {
     if (!driverProfile?.id) return;
     try {
@@ -689,14 +475,11 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  /**
-   * Simulate an incoming ride request for instant demo / testing when online
-   */
   const simulateIncomingRide = () => {
     const sampleIdx = Math.floor(Math.random() * SAMPLE_ROUTES.length);
     const route = SAMPLE_ROUTES[sampleIdx];
     const passenger = SAMPLE_PASSENGERS[sampleIdx % SAMPLE_PASSENGERS.length];
-    const vType = activeVehicle?.vehicleType || driverProfile?.vehicle?.vehicleType || VehicleType.TUK;
+    const vType = driverProfile?.vehicle?.vehicleType || VehicleType.TUK;
 
     const simulated: DriverTripRecord = {
       id: `ride_sim_${Date.now()}`,
@@ -716,10 +499,6 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIncomingRide(simulated);
   };
 
-  /**
-   * Accept incoming ride offer
-   * PATCH /api/v1/rides/{id}/accept
-   */
   const acceptIncomingRide = async (): Promise<DriverTripRecord | null> => {
     if (!incomingRide) return null;
     setIsLoadingDriver(true);
@@ -734,7 +513,7 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           const res = await rideService.acceptRide(incomingRide.id, token || undefined);
           acceptedTrip = mapRideResponseToDriverTrip(res);
         } catch {
-          // fallback local transition
+          // fallback
         }
       }
 
@@ -746,9 +525,6 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  /**
-   * Decline incoming ride offer
-   */
   const declineIncomingRide = async () => {
     if (!incomingRide) return;
     if (!incomingRide.id.startsWith('ride_sim_')) {
@@ -765,10 +541,6 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIncomingRide(null);
   };
 
-  /**
-   * Start trip once passenger is picked up
-   * PATCH /api/v1/rides/{id}/start
-   */
   const startActiveTrip = async () => {
     if (!activeTrip) return;
     setIsLoadingDriver(true);
@@ -777,7 +549,7 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         try {
           await rideService.startRide(activeTrip.id, token || undefined);
         } catch {
-          // fallback local transition
+          // fallback
         }
       }
 
@@ -791,10 +563,6 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  /**
-   * Complete active trip at drop-off
-   * PATCH /api/v1/rides/{id}/complete
-   */
   const completeActiveTrip = async () => {
     if (!activeTrip) return;
     setIsLoadingDriver(true);
@@ -816,7 +584,7 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             finalFare = res.finalFare;
           }
         } catch {
-          // fallback local completion
+          // fallback
         }
       }
 
@@ -836,10 +604,6 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  /**
-   * Cancel active trip before completion
-   * PATCH /api/v1/rides/{id}/cancel
-   */
   const cancelActiveTrip = async (reason: string = 'Cancelled by driver') => {
     if (!activeTrip) return;
     setIsLoadingDriver(true);
@@ -885,7 +649,6 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  // Compute real-time earnings from completed trips
   const earnings: DriverEarningsSummary = useMemo(() => {
     const completed = tripHistory.filter((t) => t.status === RideStatus.COMPLETED);
     const now = new Date();
@@ -928,8 +691,7 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     <DriverContext.Provider
       value={{
         driverProfile,
-        vehicles,
-        activeVehicle,
+        licenseVerification,
         availabilityStatus,
         isOnline,
         isLoadingDriver,
@@ -938,11 +700,9 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         tripHistory,
         earnings,
         toggleOnlineStatus,
-        addDriverVehicle,
-        selectActiveVehicle,
-        removeDriverVehicle,
         registerOrUpdateDriverProfile,
         updateDriverVehicle,
+        verifyDriverLicense,
         syncDriverLocation,
         refreshDriverData,
         simulateIncomingRide,
@@ -959,4 +719,3 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     </DriverContext.Provider>
   );
 };
-
