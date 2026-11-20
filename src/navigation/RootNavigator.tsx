@@ -6,6 +6,7 @@ import { AuthNavigator } from './AuthNavigator';
 import { MainTabNavigator } from './MainTabNavigator';
 import { ActiveTripScreen } from '../screens/trip/ActiveTripScreen';
 import { VehicleManagementScreen } from '../screens/vehicle/VehicleManagementScreen';
+import { LicenseVerificationScreen } from '../screens/vehicle/LicenseVerificationScreen';
 import { TripDetailsScreen } from '../screens/trips/TripDetailsScreen';
 import { EditProfileScreen } from '../screens/profile/EditProfileScreen';
 import { EmergencySupportScreen } from '../screens/profile/EmergencySupportScreen';
@@ -35,6 +36,7 @@ export const RootNavigator: React.FC = () => {
               options={{ gestureEnabled: false }}
             />
             <Stack.Screen name="VehicleManagement" component={VehicleManagementScreen} />
+            <Stack.Screen name="LicenseVerification" component={LicenseVerificationScreen} />
             <Stack.Screen name="TripDetails" component={TripDetailsScreen} />
             <Stack.Screen name="EditProfile" component={EditProfileScreen} />
             <Stack.Screen name="EmergencySupport" component={EmergencySupportScreen} />
@@ -44,4 +46,3 @@ export const RootNavigator: React.FC = () => {
     </NavigationContainer>
   );
 };
-
