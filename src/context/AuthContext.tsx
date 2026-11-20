@@ -38,6 +38,7 @@ const mapAccountToUserProfile = (
   lastName: acc.lastName,
   phoneNumber: acc.phoneNumber,
   email: acc.email,
+  avatarUrl: acc.profile?.profilePictureUrl || existing?.avatarUrl,
   role: acc.role,
   status: acc.status,
   profile: acc.profile,
@@ -65,6 +66,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setIsAuthenticated(true);
 
           if (savedAccountId) {
+            const cachedAvatar = await storageService.getItem(`driverAvatar_${savedAccountId}`);
             try {
               const freshAccount = await accountService.getAccountById(savedAccountId, savedToken);
               if (freshAccount.role && freshAccount.role === 'PASSENGER') {
@@ -76,7 +78,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setUser(null);
                 return;
               }
-              setUser((prev) => mapAccountToUserProfile(freshAccount, prev));
+              setUser((prev) => {
+                const mapped = mapAccountToUserProfile(freshAccount, prev);
+                if (!mapped.avatarUrl && cachedAvatar) {
+                  mapped.avatarUrl = cachedAvatar;
+                }
+                return mapped;
+              });
             } catch {
               // Keep offline session
             }
@@ -106,7 +114,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(response.token);
       apiClient.setToken(response.token);
 
+      const cachedAvatar = response.account?.id
+        ? await storageService.getItem(`driverAvatar_${response.account.id}`)
+        : null;
       const mappedUser = mapAccountToUserProfile(response.account, user);
+      if (!mappedUser.avatarUrl && cachedAvatar) {
+        mappedUser.avatarUrl = cachedAvatar;
+      }
+
       setUser(mappedUser);
       setIsAuthenticated(true);
 
@@ -164,13 +179,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setIsLoading(true);
     try {
+      if (request.profile?.profilePictureUrl) {
+        await storageService.setItem(`driverAvatar_${currentId}`, request.profile.profilePictureUrl);
+      }
+
       const updatedAccount = await accountService.updateProfile(
         currentId,
         request,
         token || undefined
       );
-      setUser((prev) => mapAccountToUserProfile(updatedAccount, prev));
+      setUser((prev) => {
+        const mapped = mapAccountToUserProfile(updatedAccount, prev);
+        if (request.profile?.profilePictureUrl) {
+          mapped.avatarUrl = request.profile.profilePictureUrl;
+        }
+        return mapped;
+      });
       return updatedAccount;
+    } catch (err) {
+      // If demo/OTP session or offline, still update local user state
+      if (request.profile?.profilePictureUrl || request.firstName || request.lastName) {
+        setUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                firstName: request.firstName ?? prev.firstName,
+                lastName: request.lastName ?? prev.lastName,
+                fullName:
+                  `${request.firstName ?? prev.firstName ?? ''} ${
+                    request.lastName ?? prev.lastName ?? ''
+                  }`.trim() || prev.fullName,
+                phoneNumber: request.phoneNumber ?? prev.phoneNumber,
+                avatarUrl: request.profile?.profilePictureUrl ?? prev.avatarUrl,
+                profile: {
+                  ...prev.profile,
+                  ...request.profile,
+                },
+              }
+            : prev
+        );
+      }
+      throw err;
     } finally {
       setIsLoading(false);
     }
@@ -245,4 +294,3 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     </AuthContext.Provider>
   );
 };
-
