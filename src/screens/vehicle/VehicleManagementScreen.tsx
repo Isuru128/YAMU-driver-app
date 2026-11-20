@@ -26,23 +26,34 @@ type Props = NativeStackScreenProps<RootStackParamList, 'VehicleManagement'>;
 export const VehicleManagementScreen: React.FC<Props> = ({ navigation }) => {
   const {
     driverProfile,
+    vehicles,
+    activeVehicle,
     licenseVerification,
     isLoadingDriver,
     registerOrUpdateDriverProfile,
     updateDriverVehicle,
+    selectActiveVehicle,
   } = useDriver();
 
   const [serviceArea, setServiceArea] = useState(driverProfile?.serviceArea || 'Colombo');
   const [vehicleType, setVehicleType] = useState<VehicleType>(
-    driverProfile?.vehicle?.vehicleType || VehicleType.TUK
+    activeVehicle?.vehicleType || driverProfile?.vehicle?.vehicleType || VehicleType.TUK
   );
-  const [licensePlate, setLicensePlate] = useState(driverProfile?.vehicle?.licensePlate || '');
-  const [make, setMake] = useState(driverProfile?.vehicle?.make || '');
-  const [model, setModel] = useState(driverProfile?.vehicle?.model || '');
+  const [licensePlate, setLicensePlate] = useState(
+    activeVehicle?.licensePlate || driverProfile?.vehicle?.licensePlate || ''
+  );
+  const [make, setMake] = useState(activeVehicle?.make || driverProfile?.vehicle?.make || '');
+  const [model, setModel] = useState(activeVehicle?.model || driverProfile?.vehicle?.model || '');
   const [year, setYear] = useState(
-    driverProfile?.vehicle?.year ? String(driverProfile.vehicle.year) : '2022'
+    activeVehicle?.year
+      ? String(activeVehicle.year)
+      : driverProfile?.vehicle?.year
+      ? String(driverProfile.vehicle.year)
+      : '2022'
   );
-  const [color, setColor] = useState(driverProfile?.vehicle?.color || 'White');
+  const [color, setColor] = useState(
+    activeVehicle?.color || driverProfile?.vehicle?.color || 'White'
+  );
 
   const isLicenseVerified =
     Boolean(licenseVerification?.isVerified) ||
@@ -79,7 +90,7 @@ export const VehicleManagementScreen: React.FC<Props> = ({ navigation }) => {
         });
       }
 
-      Alert.alert('Saved', 'Your vehicle details have been updated.', [
+      Alert.alert('Saved', 'Your vehicle details have been registered and set as active.', [
         { text: 'OK', onPress: () => navigation.goBack() },
       ]);
     } catch (err: any) {
@@ -117,7 +128,7 @@ export const VehicleManagementScreen: React.FC<Props> = ({ navigation }) => {
           </View>
 
           <Button
-            title={isLicenseVerified ? "Update Driver's License" : "Verify Driver's License"}
+            title="Verify Drivers License"
             variant={isLicenseVerified ? 'outline' : 'secondary'}
             size="medium"
             onPress={() => navigation.navigate('LicenseVerification')}
@@ -131,6 +142,47 @@ export const VehicleManagementScreen: React.FC<Props> = ({ navigation }) => {
             style={styles.verifyLicenseBtn}
           />
         </Card>
+
+        {/* Registered Vehicles List (if driver has vehicles) */}
+        {vehicles.length > 0 && (
+          <View style={styles.registeredSection}>
+            <Text style={styles.sectionTitle}>Your Registered Vehicles</Text>
+            {vehicles.map((v) => {
+              const isActive =
+                activeVehicle?.licensePlate.toUpperCase() === v.licensePlate.toUpperCase();
+              return (
+                <TouchableOpacity
+                  key={v.licensePlate}
+                  style={[styles.savedVehicleRow, isActive && styles.savedVehicleRowActive]}
+                  onPress={() => {
+                    selectActiveVehicle(v.licensePlate);
+                    setVehicleType(v.vehicleType);
+                    setLicensePlate(v.licensePlate);
+                    setMake(v.make);
+                    setModel(v.model);
+                    setYear(v.year ? String(v.year) : '2022');
+                    setColor(v.color || 'White');
+                  }}
+                >
+                  <Ionicons
+                    name={isActive ? 'checkbox' : 'square-outline'}
+                    size={22}
+                    color={isActive ? Colors.success : Colors.textMuted}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.savedVehicleTitle}>
+                      {v.make} {v.model} ({v.vehicleType})
+                    </Text>
+                    <Text style={styles.savedVehicleSub}>
+                      {v.licensePlate} • {v.color}
+                    </Text>
+                  </View>
+                  {isActive && <Text style={styles.activeTag}>ACTIVE</Text>}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
 
         <Text style={styles.label}>PRIMARY SERVICE AREA</Text>
         <View style={styles.chipsWrap}>
@@ -230,7 +282,7 @@ export const VehicleManagementScreen: React.FC<Props> = ({ navigation }) => {
         </View>
 
         <Button
-          title={driverProfile?.id ? 'Update Vehicle Details' : 'Register Vehicle'}
+          title={driverProfile?.id ? 'Save Vehicle Details' : 'Register Vehicle'}
           onPress={handleSave}
           loading={isLoadingDriver}
           style={styles.saveBtn}
@@ -275,6 +327,41 @@ const styles = StyleSheet.create({
   },
   verifyLicenseBtn: {
     width: '100%',
+  },
+  registeredSection: {
+    marginBottom: 18,
+    gap: 8,
+  },
+  savedVehicleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  savedVehicleRowActive: {
+    borderColor: Colors.success,
+    backgroundColor: '#F0FDF4',
+  },
+  savedVehicleTitle: {
+    ...Typography.bodyBold,
+    color: Colors.textPrimary,
+  },
+  savedVehicleSub: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+  },
+  activeTag: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: Colors.success,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
   },
   sectionTitle: {
     ...Typography.h3,

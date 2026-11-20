@@ -126,12 +126,11 @@ function sha1(message: string): string {
 
 /**
  * CloudinaryService handles parsing CLOUDINARY_URL (cloudinary://<api_key>:<api_secret>@swsqjk22)
- * and uploading driver license verification images (front & back) to Cloudinary.
+ * and uploading driver profile pictures and driving license images (front & back) to Cloudinary.
  */
 class CloudinaryService {
   parseConfig(): CloudinaryConfig {
     const rawUrl = ENV.CLOUDINARY_URL || 'cloudinary://<your_api_key>:<your_api_secret>@swsqjk22';
-    // Matches cloudinary://API_KEY:API_SECRET@CLOUD_NAME
     const match = rawUrl.match(/^cloudinary:\/\/([^:]+):([^@]+)@(.+)$/);
 
     if (match) {
@@ -151,22 +150,14 @@ class CloudinaryService {
     };
   }
 
-  /**
-   * Uploads an image URI to Cloudinary (cloudName: swsqjk22)
-   * Supports both signed uploads (when API key & secret are configured in CLOUDINARY_URL)
-   * and unsigned preset uploads.
-   */
-  async uploadLicenseImage(
+  private async uploadToFolder(
     imageUri: string,
-    side: 'front' | 'back',
-    driverId?: string
+    folder: string,
+    filename: string
   ): Promise<CloudinaryUploadResult> {
     const config = this.parseConfig();
     const cloudName = config.cloudName || 'swsqjk22';
     const endpoint = `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`;
-
-    const filename = `license_${side}_${driverId || Date.now()}.jpg`;
-    const folder = 'yamu_driver_licenses';
     const timestamp = Math.floor(Date.now() / 1000).toString();
 
     const hasRealCredentials =
@@ -177,7 +168,6 @@ class CloudinaryService {
 
     const formData = new FormData();
 
-    // React Native FormData file object
     formData.append('file', {
       uri: imageUri,
       type: 'image/jpeg',
@@ -187,7 +177,6 @@ class CloudinaryService {
     formData.append('folder', folder);
 
     if (hasRealCredentials) {
-      // Signed upload using CLOUDINARY_URL credentials
       const paramsToSign = `folder=${folder}&timestamp=${timestamp}`;
       const signature = sha1(`${paramsToSign}${config.apiSecret}`);
 
@@ -195,7 +184,6 @@ class CloudinaryService {
       formData.append('timestamp', timestamp);
       formData.append('signature', signature);
     } else {
-      // Unsigned upload fallback using upload preset
       formData.append('upload_preset', config.uploadPreset || 'ml_default');
     }
 
@@ -221,14 +209,12 @@ class CloudinaryService {
         const errData = await response.json().catch(() => ({}));
         const errMsg = errData?.error?.message || `Status ${response.status}`;
 
-        // If the user hasn't replaced <your_api_key>:<your_api_secret> yet, return a cloud-formatted reference URL
-        // while logging a clear reminder to put the real API key & secret in .env
         if (!hasRealCredentials) {
           console.warn(
-            `[Cloudinary swsqjk22] Placeholder credentials detected (${errMsg}). Replace <your_api_key> and <your_api_secret> in .env for live cloud storage.`
+            `[Cloudinary swsqjk22] Placeholder credentials detected (${errMsg}). Using local image preview until real API key & secret are set in .env.`
           );
           return {
-            secureUrl: `https://res.cloudinary.com/${cloudName}/image/upload/${folder}/${filename}`,
+            secureUrl: imageUri,
             publicId: `${folder}/${filename}`,
           };
         }
@@ -238,12 +224,35 @@ class CloudinaryService {
     } catch (error: any) {
       if (!hasRealCredentials) {
         return {
-          secureUrl: `https://res.cloudinary.com/${cloudName}/image/upload/${folder}/${filename}`,
+          secureUrl: imageUri,
           publicId: `${folder}/${filename}`,
         };
       }
       throw error;
     }
+  }
+
+  /**
+   * Uploads a driver license verification photo (front or back) to Cloudinary (swsqjk22)
+   */
+  async uploadLicenseImage(
+    imageUri: string,
+    side: 'front' | 'back',
+    driverId?: string
+  ): Promise<CloudinaryUploadResult> {
+    const filename = `license_${side}_${driverId || Date.now()}.jpg`;
+    return this.uploadToFolder(imageUri, 'yamu_driver_licenses', filename);
+  }
+
+  /**
+   * Uploads a driver user profile photo to Cloudinary (swsqjk22)
+   */
+  async uploadProfileImage(
+    imageUri: string,
+    userId?: string
+  ): Promise<CloudinaryUploadResult> {
+    const filename = `driver_avatar_${userId || Date.now()}.jpg`;
+    return this.uploadToFolder(imageUri, 'yamu_driver_profiles', filename);
   }
 }
 

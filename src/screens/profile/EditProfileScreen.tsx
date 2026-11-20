@@ -55,17 +55,17 @@ export const EditProfileScreen: React.FC<Props> = ({ navigation }) => {
 
       const result = useCamera
         ? await ImagePicker.launchCameraAsync({
-            mediaTypes: ['images'],
-            allowsEditing: true,
-            aspect: [1, 1],
-            quality: 0.85,
-          })
+          mediaTypes: ['images'],
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.85,
+        })
         : await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ['images'],
-            allowsEditing: true,
-            aspect: [1, 1],
-            quality: 0.85,
-          });
+          mediaTypes: ['images'],
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.85,
+        });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const localUri = result.assets[0].uri;
@@ -170,8 +170,8 @@ export const EditProfileScreen: React.FC<Props> = ({ navigation }) => {
               {uploadingPhoto
                 ? 'Uploading to Cloudinary...'
                 : avatarUri
-                ? 'Change Profile Photo'
-                : 'Add Driver Profile Photo'}
+                  ? 'Change Profile Photo'
+                  : 'Add Driver Profile Photo'}
             </Text>
           </TouchableOpacity>
         </View>

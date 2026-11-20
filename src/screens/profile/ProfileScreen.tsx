@@ -1,15 +1,18 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Image,
+  ActivityIndicator,
   Alert,
 } from 'react-native';
 import { CompositeScreenProps } from '@react-navigation/native';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { MainTabParamList, RootStackParamList } from '../../navigation/types';
 import { SafeScreen } from '../../components/layout/SafeScreen';
@@ -18,6 +21,7 @@ import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Colors } from '../../constants/colors';
 import { Typography } from '../../constants/typography';
+import { cloudinaryService } from '../../services/cloudinaryService';
 import { useAuth } from '../../hooks/useAuth';
 import { useDriver } from '../../hooks/useDriver';
 
@@ -27,8 +31,11 @@ type Props = CompositeScreenProps<
 >;
 
 export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
-  const { user, logout } = useAuth();
-  const { driverProfile, licenseVerification, availabilityStatus } = useDriver();
+  const { user, updateProfile, updateUser, logout } = useAuth();
+  const { driverProfile, activeVehicle, licenseVerification, availabilityStatus } = useDriver();
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  const profileImageUrl = user?.avatarUrl || user?.profile?.profilePictureUrl;
 
   const isLicenseVerified =
     Boolean(licenseVerification?.isVerified) ||
@@ -38,6 +45,75 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
         driverProfile.licenseFrontImageUrl
     );
 
+  const handleQuickAvatarUpload = async (useCamera: boolean) => {
+    try {
+      const perm = useCamera
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!perm.granted) {
+        Alert.alert(
+          'Permission Required',
+          `Please grant ${useCamera ? 'camera' : 'photo library'} access to upload your profile photo.`
+        );
+        return;
+      }
+
+      const result = useCamera
+        ? await ImagePicker.launchCameraAsync({
+            mediaTypes: ['images'],
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.85,
+          })
+        : await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.85,
+          });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const localUri = result.assets[0].uri;
+        setUploadingAvatar(true);
+        try {
+          const uploadRes = await cloudinaryService.uploadProfileImage(localUri, user?.id);
+          updateUser({
+            avatarUrl: uploadRes.secureUrl,
+            profile: {
+              ...user?.profile,
+              profilePictureUrl: uploadRes.secureUrl,
+            },
+          });
+          await updateProfile({
+            firstName: user?.firstName,
+            lastName: user?.lastName,
+            phoneNumber: user?.phoneNumber,
+            profile: {
+              ...user?.profile,
+              profilePictureUrl: uploadRes.secureUrl,
+            },
+          });
+          Alert.alert('Photo Updated', 'Your driver profile image has been saved to Cloudinary.');
+        } catch {
+          // Local avatar state already updated
+        } finally {
+          setUploadingAvatar(false);
+        }
+      }
+    } catch (err: any) {
+      Alert.alert('Upload Failed', err?.message || 'Could not update profile photo.');
+    }
+  };
+
+  const promptAvatarChange = () => {
+    Alert.alert('Update Driver Profile Photo', 'Choose an option', [
+      { text: 'Take Photo (Camera)', onPress: () => handleQuickAvatarUpload(true) },
+      { text: 'Choose from Gallery', onPress: () => handleQuickAvatarUpload(false) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out of YAMU Driver?', [
       { text: 'Cancel', style: 'cancel' },
@@ -45,17 +121,38 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
     ]);
   };
 
+  const currentVehicle = activeVehicle || driverProfile?.vehicle;
+
   return (
     <SafeScreen>
       <AppHeader title="Driver Account" />
       <ScrollView contentContainerStyle={styles.container}>
-        {/* Driver Header Card */}
+        {/* Driver Header Card with Uploadable Profile Photo */}
         <Card style={styles.profileCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {(user?.fullName || 'D').charAt(0).toUpperCase()}
-            </Text>
-          </View>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={styles.avatarContainer}
+            onPress={promptAvatarChange}
+            disabled={uploadingAvatar}
+          >
+            {profileImageUrl ? (
+              <Image source={{ uri: profileImageUrl }} style={styles.avatarImage} />
+            ) : (
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {(user?.fullName || 'D').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
+            <View style={styles.avatarEditBadge}>
+              {uploadingAvatar ? (
+                <ActivityIndicator size="small" color={Colors.white} />
+              ) : (
+                <Ionicons name="camera" size={12} color={Colors.white} />
+              )}
+            </View>
+          </TouchableOpacity>
+
           <View style={{ flex: 1 }}>
             <Text style={styles.name}>{user?.fullName || 'Driver Partner'}</Text>
             <Text style={styles.subText}>{user?.email || user?.phoneNumber}</Text>
@@ -82,17 +179,16 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
             </TouchableOpacity>
           </View>
 
-          {driverProfile?.vehicle ? (
+          {currentVehicle ? (
             <View style={styles.vehicleDetails}>
               <Text style={styles.vehicleMain}>
-                {driverProfile.vehicle.make} {driverProfile.vehicle.model} (
-                {driverProfile.vehicle.vehicleType})
+                {currentVehicle.make} {currentVehicle.model} ({currentVehicle.vehicleType})
               </Text>
               <Text style={styles.vehicleMeta}>
-                Plate: {driverProfile.vehicle.licensePlate} • Color: {driverProfile.vehicle.color}
+                Plate: {currentVehicle.licensePlate} • Color: {currentVehicle.color}
               </Text>
               <Text style={styles.vehicleMeta}>
-                Service Area: {driverProfile.serviceArea}
+                Service Area: {driverProfile?.serviceArea || 'Colombo'}
               </Text>
             </View>
           ) : (
@@ -102,7 +198,7 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
           )}
 
           <Button
-            title={isLicenseVerified ? "Driver's License Verified" : "Verify Driver's License"}
+            title={isLicenseVerified ? "Driver's License Verified" : "Verify Drivers License"}
             variant={isLicenseVerified ? 'outline' : 'secondary'}
             size="medium"
             onPress={() => navigation.navigate('LicenseVerification')}
@@ -124,7 +220,7 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
             onPress={() => navigation.navigate('LicenseVerification')}
           >
             <Ionicons name="id-card-outline" size={22} color={Colors.textPrimary} />
-            <Text style={styles.menuText}>Verify Driver’s License</Text>
+            <Text style={styles.menuText}>Verify Drivers License</Text>
             <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
           </TouchableOpacity>
 
@@ -142,7 +238,7 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
             onPress={() => navigation.navigate('EditProfile')}
           >
             <Ionicons name="person-outline" size={22} color={Colors.textPrimary} />
-            <Text style={styles.menuText}>Edit Personal Profile</Text>
+            <Text style={styles.menuText}>Edit Personal Profile & Photo</Text>
             <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
           </TouchableOpacity>
 
@@ -178,11 +274,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 14,
   },
+  avatarContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    position: 'relative',
+  },
   avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+  },
+  avatarEditBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Colors.primary,
+    borderWidth: 2,
+    borderColor: Colors.white,
     alignItems: 'center',
     justifyContent: 'center',
   },
