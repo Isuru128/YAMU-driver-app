@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useEffect } from 'react';
+import React, { useRef, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -42,33 +42,26 @@ export const WhiteThemedMap: React.FC<WhiteThemedMapProps> = ({
   children,
 }) => {
   const webViewRef = useRef<WebView<Record<string, unknown>> | null>(null);
+  const initialCoordsRef = useRef<Coordinates>({
+    latitude: driverCoordinates?.latitude || DEFAULT_COORDS.latitude,
+    longitude: driverCoordinates?.longitude || DEFAULT_COORDS.longitude,
+  });
 
+  // Build static HTML once so WebView never aborts/reloads mid-flight on prop updates
   const leafletHtml = useMemo(() => {
-    const centerLat = driverCoordinates.latitude || DEFAULT_COORDS.latitude;
-    const centerLng = driverCoordinates.longitude || DEFAULT_COORDS.longitude;
+    const centerLat = initialCoordsRef.current.latitude;
+    const centerLng = initialCoordsRef.current.longitude;
 
-    const routeJson = JSON.stringify(
-      (routeCoordinates || []).map((c) => [c.latitude, c.longitude])
-    );
-
-    const hasPickup = !!pickupCoordinates;
-    const pickupLat = pickupCoordinates?.latitude || 0;
-    const pickupLng = pickupCoordinates?.longitude || 0;
-
-    const hasDest = !!destinationCoordinates;
-    const destLat = destinationCoordinates?.latitude || 0;
-    const destLng = destinationCoordinates?.longitude || 0;
-
-    return `
-<!DOCTYPE html>
+    return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
   <style>
-    html, body, #map {
+    * { box-sizing: border-box; }
+    html, body {
       height: 100%;
       width: 100%;
       margin: 0;
@@ -77,9 +70,19 @@ export const WhiteThemedMap: React.FC<WhiteThemedMapProps> = ({
       overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
+    #map {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100vw;
+      height: 100vh;
+      background: #f8fafc;
+    }
     .leaflet-control-attribution {
       font-size: 8px !important;
-      background: rgba(255, 255, 255, 0.7) !important;
+      background: rgba(255, 255, 255, 0.75) !important;
     }
     .leaflet-control-zoom {
       display: none !important;
@@ -143,88 +146,153 @@ export const WhiteThemedMap: React.FC<WhiteThemedMapProps> = ({
       attributionControl: true
     }).setView([${centerLat}, ${centerLng}], 15);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    // Primary high-reliability CartoDB Voyager tiles (no Referer 403 block in WebViews) with OSM fallback
+    const tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
       maxZoom: 19,
-      attribution: '© OpenStreetMap'
+      subdomains: 'abcd',
+      attribution: '© OpenStreetMap © CARTO'
     }).addTo(map);
 
-    const driverHtml = \`
-      <div class="custom-pin">
-        <div class="callout-pill">${driverLabel}</div>
-        <div class="driver-circle"><div class="pin-core"></div></div>
-      </div>
-    \`;
-    const driverIcon = L.divIcon({
-      html: driverHtml,
-      className: '',
-      iconSize: [130, 52],
-      iconAnchor: [65, 50]
+    let fallbackUsed = false;
+    tileLayer.on('tileerror', function() {
+      if (!fallbackUsed) {
+        fallbackUsed = true;
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '© OpenStreetMap'
+        }).addTo(map);
+      }
     });
-    const driverMarker = L.marker([${centerLat}, ${centerLng}], { icon: driverIcon }).addTo(map);
 
-    if (${hasPickup}) {
-      const pickupHtml = \`
-        <div class="custom-pin">
-          <div class="callout-pill" style="color: #059669; border-color: #10b981;">${pickupLabel}</div>
-          <div class="pin-circle"><div class="pin-core"></div></div>
-        </div>
-      \`;
-      const pickupIcon = L.divIcon({
-        html: pickupHtml,
+    let driverMarker = null;
+    let pickupMarker = null;
+    let destMarker = null;
+    let routeLine = null;
+
+    function buildDriverIcon(label) {
+      return L.divIcon({
+        html: '<div class="custom-pin"><div class="callout-pill">' + label + '</div><div class="driver-circle"><div class="pin-core"></div></div></div>',
         className: '',
-        iconSize: [120, 50],
-        iconAnchor: [60, 48]
+        iconSize: [140, 52],
+        iconAnchor: [70, 50]
       });
-      L.marker([${pickupLat}, ${pickupLng}], { icon: pickupIcon }).addTo(map);
     }
 
-    if (${hasDest}) {
-      const destHtml = \`
-        <div class="custom-pin">
-          <div class="callout-pill" style="color: #ef4444; border-color: #ef4444;">${destinationLabel}</div>
-          <div class="pin-circle dest-circle"><div class="pin-core"></div></div>
-        </div>
-      \`;
-      const destIcon = L.divIcon({
-        html: destHtml,
+    function buildPinIcon(label, isDest) {
+      const colorStyle = isDest ? 'color: #ef4444; border-color: #ef4444;' : 'color: #059669; border-color: #10b981;';
+      const circleClass = isDest ? 'pin-circle dest-circle' : 'pin-circle';
+      return L.divIcon({
+        html: '<div class="custom-pin"><div class="callout-pill" style="' + colorStyle + '">' + label + '</div><div class="' + circleClass + '"><div class="pin-core"></div></div></div>',
         className: '',
-        iconSize: [120, 50],
-        iconAnchor: [60, 48]
+        iconSize: [130, 50],
+        iconAnchor: [65, 48]
       });
-      L.marker([${destLat}, ${destLng}], { icon: destIcon }).addTo(map);
     }
 
-    const routeCoords = ${routeJson};
-    if (routeCoords && routeCoords.length > 1) {
-      const polyline = L.polyline(routeCoords, {
-        color: '#0a0a0a',
-        weight: 5,
-        opacity: 0.9,
-        lineCap: 'round',
-        lineJoin: 'round'
-      }).addTo(map);
-      map.fitBounds(polyline.getBounds(), { padding: [55, 55] });
-    } else if (${hasPickup} && ${hasDest}) {
-      const bounds = L.latLngBounds([
-        [${pickupLat}, ${pickupLng}],
-        [${destLat}, ${destLng}]
-      ]);
-      map.fitBounds(bounds, { padding: [55, 55] });
-    }
+    driverMarker = L.marker([${centerLat}, ${centerLng}], {
+      icon: buildDriverIcon('Your Location')
+    }).addTo(map);
+
+    window.syncMapState = function(state) {
+      if (!state) return;
+      map.invalidateSize();
+
+      if (state.driver && state.driver.lat && state.driver.lng) {
+        if (driverMarker) {
+          driverMarker.setLatLng([state.driver.lat, state.driver.lng]);
+          driverMarker.setIcon(buildDriverIcon(state.driverLabel || 'Your Location'));
+        } else {
+          driverMarker = L.marker([state.driver.lat, state.driver.lng], {
+            icon: buildDriverIcon(state.driverLabel || 'Your Location')
+          }).addTo(map);
+        }
+      }
+
+      if (state.pickup && state.pickup.lat && state.pickup.lng) {
+        if (pickupMarker) {
+          pickupMarker.setLatLng([state.pickup.lat, state.pickup.lng]);
+          pickupMarker.setIcon(buildPinIcon(state.pickupLabel || 'Pickup', false));
+        } else {
+          pickupMarker = L.marker([state.pickup.lat, state.pickup.lng], {
+            icon: buildPinIcon(state.pickupLabel || 'Pickup', false)
+          }).addTo(map);
+        }
+      } else if (pickupMarker) {
+        map.removeLayer(pickupMarker);
+        pickupMarker = null;
+      }
+
+      if (state.destination && state.destination.lat && state.destination.lng) {
+        if (destMarker) {
+          destMarker.setLatLng([state.destination.lat, state.destination.lng]);
+          destMarker.setIcon(buildPinIcon(state.destinationLabel || 'Drop-off', true));
+        } else {
+          destMarker = L.marker([state.destination.lat, state.destination.lng], {
+            icon: buildPinIcon(state.destinationLabel || 'Drop-off', true)
+          }).addTo(map);
+        }
+      } else if (destMarker) {
+        map.removeLayer(destMarker);
+        destMarker = null;
+      }
+
+      if (routeLine) {
+        map.removeLayer(routeLine);
+        routeLine = null;
+      }
+
+      if (state.route && state.route.length > 1) {
+        routeLine = L.polyline(state.route, {
+          color: '#0a0a0a',
+          weight: 5,
+          opacity: 0.9,
+          lineCap: 'round',
+          lineJoin: 'round'
+        }).addTo(map);
+        map.fitBounds(routeLine.getBounds(), { padding: [55, 55] });
+      } else if (state.pickup && state.destination) {
+        const bounds = L.latLngBounds([
+          [state.pickup.lat, state.pickup.lng],
+          [state.destination.lat, state.destination.lng]
+        ]);
+        map.fitBounds(bounds, { padding: [55, 55] });
+      }
+    };
 
     window.recenterMap = function(lat, lng) {
+      map.invalidateSize();
       map.flyTo([lat, lng], 16, { animate: true, duration: 0.8 });
     };
 
-    window.updateDriverPos = function(lat, lng) {
-      if (driverMarker) {
-        driverMarker.setLatLng([lat, lng]);
-      }
-    };
+    setTimeout(function() { map.invalidateSize(); }, 100);
+    setTimeout(function() { map.invalidateSize(); }, 400);
+    window.addEventListener('resize', function() { map.invalidateSize(); });
   </script>
 </body>
-</html>
-    `;
+</html>`;
+  }, []);
+
+  const syncToWebView = useCallback(() => {
+    if (!webViewRef.current) return;
+
+    const payload = {
+      driver: driverCoordinates
+        ? { lat: driverCoordinates.latitude, lng: driverCoordinates.longitude }
+        : null,
+      driverLabel,
+      pickup: pickupCoordinates
+        ? { lat: pickupCoordinates.latitude, lng: pickupCoordinates.longitude }
+        : null,
+      pickupLabel,
+      destination: destinationCoordinates
+        ? { lat: destinationCoordinates.latitude, lng: destinationCoordinates.longitude }
+        : null,
+      destinationLabel,
+      route: (routeCoordinates || []).map((c) => [c.latitude, c.longitude]),
+    };
+
+    const script = `window.syncMapState && window.syncMapState(${JSON.stringify(payload)}); true;`;
+    webViewRef.current.injectJavaScript(script);
   }, [
     driverCoordinates,
     driverLabel,
@@ -236,11 +304,8 @@ export const WhiteThemedMap: React.FC<WhiteThemedMapProps> = ({
   ]);
 
   useEffect(() => {
-    if (webViewRef.current && driverCoordinates?.latitude && driverCoordinates?.longitude) {
-      const script = `window.updateDriverPos && window.updateDriverPos(${driverCoordinates.latitude}, ${driverCoordinates.longitude}); true;`;
-      webViewRef.current.injectJavaScript(script);
-    }
-  }, [driverCoordinates?.latitude, driverCoordinates?.longitude]);
+    syncToWebView();
+  }, [syncToWebView]);
 
   const handleRecenter = () => {
     if (webViewRef.current && driverCoordinates) {
@@ -274,14 +339,18 @@ export const WhiteThemedMap: React.FC<WhiteThemedMapProps> = ({
     <View style={[styles.container, style]}>
       <WebView<Record<string, unknown>>
         ref={webViewRef}
-        source={{ html: leafletHtml }}
+        originWhitelist={['*']}
+        source={{ html: leafletHtml, baseUrl: 'https://yamu.lk' }}
         style={styles.map}
         javaScriptEnabled={true}
         domStorageEnabled={true}
+        mixedContentMode="always"
+        userAgent="YAMU-Driver-App/1.0 (https://yamu.lk)"
         scrollEnabled={false}
         bounces={false}
         overScrollMode="never"
         startInLoadingState={true}
+        onLoadEnd={syncToWebView}
         renderLoading={() => (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={Colors.primary} />
@@ -305,12 +374,16 @@ export const WhiteThemedMap: React.FC<WhiteThemedMapProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    width: '100%',
+    height: '100%',
     position: 'relative',
     overflow: 'hidden',
     backgroundColor: '#f8fafc',
   },
   map: {
     flex: 1,
+    width: '100%',
+    height: '100%',
     backgroundColor: '#f8fafc',
   },
   loadingContainer: {
@@ -322,11 +395,11 @@ const styles = StyleSheet.create({
   },
   recenterButton: {
     position: 'absolute',
-    right: 20,
-    bottom: 24,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    right: 18,
+    top: 76,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: Colors.white,
     alignItems: 'center',
     justifyContent: 'center',
@@ -337,7 +410,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 8,
     elevation: 6,
-    zIndex: 20,
+    zIndex: 25,
   },
 });
-
