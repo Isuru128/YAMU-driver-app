@@ -21,7 +21,15 @@ export const ENV = {
 
   SOCKET_URL: process.env.EXPO_PUBLIC_SOCKET_URL || '',
   MAPS_API_KEY: process.env.EXPO_PUBLIC_MAPS_KEY || '',
+
+  // Cloudinary URL & Credentials
+  CLOUDINARY_URL:
+    process.env.EXPO_PUBLIC_CLOUDINARY_URL ||
+    process.env.CLOUDINARY_URL ||
+    'cloudinary://<your_api_key>:<your_api_secret>@swsqjk22',
+  CLOUDINARY_UPLOAD_PRESET:
+    process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'yamu_driver_licenses',
+
   DEFAULT_COUNTRY_CODE: '+94',
   IS_PRODUCTION: process.env.NODE_ENV === 'production',
 };
-
