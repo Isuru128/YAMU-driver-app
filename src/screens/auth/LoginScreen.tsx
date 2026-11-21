@@ -17,19 +17,17 @@ import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
 import { Colors } from '../../constants/colors';
 import { Typography } from '../../constants/typography';
-import { isValidEmail, isValidSriLankanPhone } from '../../utils/validators';
+import { isValidEmail } from '../../utils/validators';
 import { useAuth } from '../../hooks/useAuth';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
 export const LoginScreen: React.FC<Props> = ({ navigation }) => {
-  const { login, loginWithPhone, isLoading } = useAuth();
+  const { login, isLoading } = useAuth();
 
-  const [authMode, setAuthMode] = useState<'email' | 'phone'>('email');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [phone, setPhone] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
 
@@ -62,19 +60,6 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
     }
   };
 
-  const handlePhoneContinue = async () => {
-    setGeneralError(null);
-    if (!isValidSriLankanPhone(phone)) {
-      setErrors({ phone: 'Please enter a valid Sri Lankan mobile number (e.g., 077 123 4567)' });
-      return;
-    }
-    setErrors({});
-    const success = await loginWithPhone(phone);
-    if (success) {
-      navigation.navigate('OtpVerification', { phoneNumber: phone });
-    }
-  };
-
   return (
     <SafeScreen>
       <KeyboardAvoidingView
@@ -91,38 +76,6 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
             <Text style={styles.tagline}>Drive on your schedule. Earn more every trip.</Text>
           </View>
 
-          <View style={styles.tabContainer}>
-            <TouchableOpacity
-              style={[styles.tabButton, authMode === 'email' && styles.tabButtonActive]}
-              onPress={() => {
-                setAuthMode('email');
-                setErrors({});
-                setGeneralError(null);
-              }}
-            >
-              <Text
-                style={[styles.tabButtonText, authMode === 'email' && styles.tabButtonTextActive]}
-              >
-                Email Login
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.tabButton, authMode === 'phone' && styles.tabButtonActive]}
-              onPress={() => {
-                setAuthMode('phone');
-                setErrors({});
-                setGeneralError(null);
-              }}
-            >
-              <Text
-                style={[styles.tabButtonText, authMode === 'phone' && styles.tabButtonTextActive]}
-              >
-                Phone OTP
-              </Text>
-            </TouchableOpacity>
-          </View>
-
           {generalError && (
             <View style={styles.errorBanner}>
               <Ionicons name="alert-circle" size={20} color={Colors.danger} />
@@ -130,82 +83,55 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
             </View>
           )}
 
-          {authMode === 'email' ? (
-            <View style={styles.formSection}>
-              <Text style={styles.title}>Driver Sign In</Text>
-              <Text style={styles.subtitle}>Sign in with your registered driver account</Text>
+          <View style={styles.formSection}>
+            <Text style={styles.title}>Driver Sign In</Text>
+            <Text style={styles.subtitle}>Sign in with your registered driver account</Text>
 
-              <Input
-                label="Email Address"
-                placeholder="driver@yamu.lk"
-                value={email}
-                onChangeText={(val) => {
-                  setEmail(val);
-                  if (errors.email) setErrors((prev) => ({ ...prev, email: '' }));
-                }}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                error={errors.email}
-                leftIcon={<Ionicons name="mail-outline" size={20} color={Colors.textMuted} />}
-              />
+            <Input
+              label="Email Address"
+              placeholder="name@example.com"
+              value={email}
+              onChangeText={(val) => {
+                setEmail(val);
+                if (errors.email) setErrors((prev) => ({ ...prev, email: '' }));
+              }}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              error={errors.email}
+              leftIcon={<Ionicons name="mail-outline" size={20} color={Colors.textMuted} />}
+            />
 
-              <Input
-                label="Password"
-                placeholder="••••••••"
-                value={password}
-                onChangeText={(val) => {
-                  setPassword(val);
-                  if (errors.password) setErrors((prev) => ({ ...prev, password: '' }));
-                }}
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-                error={errors.password}
-                leftIcon={
-                  <Ionicons name="lock-closed-outline" size={20} color={Colors.textMuted} />
-                }
-                rightIcon={
-                  <Ionicons
-                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                    size={20}
-                    color={Colors.textMuted}
-                  />
-                }
-                onRightIconPress={() => setShowPassword((prev) => !prev)}
-              />
+            <Input
+              label="Password"
+              placeholder="••••••••"
+              value={password}
+              onChangeText={(val) => {
+                setPassword(val);
+                if (errors.password) setErrors((prev) => ({ ...prev, password: '' }));
+              }}
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
+              error={errors.password}
+              leftIcon={
+                <Ionicons name="lock-closed-outline" size={20} color={Colors.textMuted} />
+              }
+              rightIcon={
+                <Ionicons
+                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                  size={20}
+                  color={Colors.textMuted}
+                />
+              }
+              onRightIconPress={() => setShowPassword((prev) => !prev)}
+            />
 
-              <Button
-                title="Sign In to Drive"
-                onPress={handleEmailLogin}
-                loading={isLoading}
-                style={styles.button}
-              />
-            </View>
-          ) : (
-            <View style={styles.formSection}>
-              <Text style={styles.title}>Driver Mobile Login</Text>
-              <Text style={styles.subtitle}>Enter your registered mobile number for a 4-digit OTP</Text>
-
-              <Input
-                label="Phone Number"
-                placeholder="077 123 4567"
-                value={phone}
-                onChangeText={(text) => {
-                  setPhone(text);
-                  if (errors.phone) setErrors((prev) => ({ ...prev, phone: '' }));
-                }}
-                keyboardType="phone-pad"
-                error={errors.phone}
-                leftIcon={<Ionicons name="call-outline" size={20} color={Colors.textMuted} />}
-              />
-
-              <Button
-                title="Continue with OTP"
-                onPress={handlePhoneContinue}
-                loading={isLoading}
-                style={styles.button}
-              />
-            </View>
-          )}
+            <Button
+              title="Sign In to Drive"
+              onPress={handleEmailLogin}
+              loading={isLoading}
+              style={styles.button}
+            />
+          </View>
 
           <View style={styles.footerContainer}>
             <View style={styles.signupRow}>
@@ -266,36 +192,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
     textAlign: 'center',
   },
-  tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 12,
-    padding: 4,
-    marginTop: 20,
-  },
-  tabButton: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderRadius: 10,
-  },
-  tabButtonActive: {
-    backgroundColor: Colors.white,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  tabButtonText: {
-    ...Typography.caption,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  tabButtonTextActive: {
-    color: Colors.primary,
-    fontWeight: '700',
-  },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -353,4 +249,3 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
 });
-
