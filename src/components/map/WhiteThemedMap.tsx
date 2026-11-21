@@ -10,6 +10,7 @@ import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/colors';
 import { Coordinates } from '../../types/location';
+import { ENV } from '../../config/env';
 
 export interface WhiteThemedMapProps {
   driverCoordinates?: Coordinates;
@@ -47,10 +48,11 @@ export const WhiteThemedMap: React.FC<WhiteThemedMapProps> = ({
     longitude: driverCoordinates?.longitude || DEFAULT_COORDS.longitude,
   });
 
-  // Build static HTML once so WebView never aborts/reloads mid-flight on prop updates
+  // Static HTML with Google Maps Roadmap tiles + Google Maps API key & automatic fallback
   const leafletHtml = useMemo(() => {
     const centerLat = initialCoordsRef.current.latitude;
     const centerLng = initialCoordsRef.current.longitude;
+    const apiKey = ENV.MAPS_API_KEY || 'AIzaSyCPbCLkwQSee72-fCbDatw39MKe3hQiKQI';
 
     return `<!DOCTYPE html>
 <html>
@@ -146,20 +148,20 @@ export const WhiteThemedMap: React.FC<WhiteThemedMapProps> = ({
       attributionControl: true
     }).setView([${centerLat}, ${centerLng}], 15);
 
-    // Primary high-reliability CartoDB Voyager tiles (no Referer 403 block in WebViews) with OSM fallback
-    const tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19,
-      subdomains: 'abcd',
-      attribution: '© OpenStreetMap © CARTO'
+    // Primary Google Maps Roadmap layer using provided Google Maps API key
+    const googleLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&key=${apiKey}', {
+      maxZoom: 20,
+      attribution: '© Google Maps'
     }).addTo(map);
 
     let fallbackUsed = false;
-    tileLayer.on('tileerror', function() {
+    googleLayer.on('tileerror', function() {
       if (!fallbackUsed) {
         fallbackUsed = true;
-        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
           maxZoom: 19,
-          attribution: '© OpenStreetMap'
+          subdomains: 'abcd',
+          attribution: '© OpenStreetMap © CARTO'
         }).addTo(map);
       }
     });
@@ -321,7 +323,7 @@ export const WhiteThemedMap: React.FC<WhiteThemedMapProps> = ({
         <iframe
           srcDoc={leafletHtml}
           style={{ width: '100%', height: '100%', border: 'none' }}
-          title="OpenStreetMap"
+          title="GoogleMaps"
         />
         {children}
         <TouchableOpacity
