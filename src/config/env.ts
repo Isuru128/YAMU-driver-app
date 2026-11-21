@@ -26,7 +26,7 @@ export const ENV = {
   CLOUDINARY_URL:
     process.env.EXPO_PUBLIC_CLOUDINARY_URL ||
     process.env.CLOUDINARY_URL ||
-    'cloudinary://<your_api_key>:<your_api_secret>@swsqjk22',
+  'cloudinary://748531722447387:jX9XZ_Z2a4_R8fIVwLrTST4uqGY@swsqjk22',
   CLOUDINARY_UPLOAD_PRESET:
     process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'yamu_driver_licenses',
 
