@@ -39,7 +39,6 @@ export interface DriverContextType {
   verifyDriverLicense: (request: VerifyDriverLicenseRequest) => Promise<DriverLicenseVerification>;
   syncDriverLocation: () => Promise<void>;
   refreshDriverData: () => Promise<void>;
-  simulateIncomingRide: () => void;
   acceptIncomingRide: () => Promise<DriverTripRecord | null>;
   declineIncomingRide: () => Promise<void>;
   startActiveTrip: () => Promise<void>;
@@ -51,65 +50,9 @@ export interface DriverContextType {
 
 export const DriverContext = createContext<DriverContextType>({} as DriverContextType);
 
-const SAMPLE_PASSENGERS = [
-  { id: 'psg_101', name: 'Nimali Fernando', phone: '+94772345678', rating: 4.92 },
-  { id: 'psg_102', name: 'Kasun Jayawardena', phone: '+94718765432', rating: 4.88 },
-  { id: 'psg_103', name: 'Dilani Bandara', phone: '+94763456789', rating: 5.0 },
-  { id: 'psg_104', name: 'Roshan De Silva', phone: '+94779988776', rating: 4.95 },
-];
-
-const SAMPLE_ROUTES = [
-  {
-    pickup: {
-      name: 'One Galle Face Mall',
-      address: '1A Centre Road, Colombo 02',
-      coordinates: { latitude: 6.9272, longitude: 79.8466 },
-    },
-    destination: {
-      name: 'Independence Square',
-      address: 'Independence Ave, Colombo 07',
-      coordinates: { latitude: 6.9044, longitude: 79.8679 },
-    },
-    distanceKm: 4.2,
-    durationMinutes: 14,
-    fare: 520,
-  },
-  {
-    pickup: {
-      name: 'Colombo Fort Railway Station',
-      address: 'Olcott Mawatha, Colombo 01',
-      coordinates: { latitude: 6.9344, longitude: 79.8504 },
-    },
-    destination: {
-      name: 'Majestic City, Bambalapitiya',
-      address: 'Galle Road, Colombo 04',
-      coordinates: { latitude: 6.8942, longitude: 79.8553 },
-    },
-    distanceKm: 5.6,
-    durationMinutes: 18,
-    fare: 680,
-  },
-  {
-    pickup: {
-      name: 'Lotus Tower Colombo',
-      address: 'D.R. Wijewardena Mawatha, Colombo 10',
-      coordinates: { latitude: 6.9288, longitude: 79.8583 },
-    },
-    destination: {
-      name: 'Galle Face Green',
-      address: 'Galle Main Road, Colombo 03',
-      coordinates: { latitude: 6.9248, longitude: 79.8447 },
-    },
-    distanceKm: 2.8,
-    durationMinutes: 10,
-    fare: 390,
-  },
-];
-
-const mapRideResponseToDriverTrip = (res: RideResponse, index: number = 0): DriverTripRecord => {
-  const fare = res.finalFare ?? res.estimatedFare ?? 450;
+const mapRideResponseToDriverTrip = (res: RideResponse): DriverTripRecord => {
+  const fare = res.finalFare ?? res.estimatedFare ?? 0;
   const netEarning = Math.round(fare * (1 - APP_CONFIG.platformCommissionRate));
-  const passenger = SAMPLE_PASSENGERS[index % SAMPLE_PASSENGERS.length];
 
   return {
     id: res.id,
@@ -117,30 +60,32 @@ const mapRideResponseToDriverTrip = (res: RideResponse, index: number = 0): Driv
     completedAt: res.completedAt,
     pickup: {
       name: res.pickupLocation?.address?.split(',')[0] || 'Pickup Point',
-      address: res.pickupLocation?.address || res.pickupLocation?.city || 'Colombo',
+      address: res.pickupLocation?.address || res.pickupLocation?.city || '',
       coordinates: {
-        latitude: res.pickupLocation?.latitude ?? 6.9271,
-        longitude: res.pickupLocation?.longitude ?? 79.8612,
+        latitude: res.pickupLocation?.latitude ?? APP_CONFIG.defaultMapRegion.latitude,
+        longitude: res.pickupLocation?.longitude ?? APP_CONFIG.defaultMapRegion.longitude,
       },
     },
     destination: {
       name: res.destinationLocation?.address?.split(',')[0] || 'Destination Point',
-      address: res.destinationLocation?.address || res.destinationLocation?.city || 'Colombo',
+      address: res.destinationLocation?.address || res.destinationLocation?.city || '',
       coordinates: {
-        latitude: res.destinationLocation?.latitude ?? 6.9044,
-        longitude: res.destinationLocation?.longitude ?? 79.8679,
+        latitude: res.destinationLocation?.latitude ?? APP_CONFIG.defaultMapRegion.latitude,
+        longitude: res.destinationLocation?.longitude ?? APP_CONFIG.defaultMapRegion.longitude,
       },
     },
     vehicleType: res.requestedVehicleType || VehicleType.TUK,
     paymentMethod: PaymentMethod.CASH,
     fare,
     netEarning,
-    distanceKm: res.estimatedDistanceKm ?? 4.5,
-    durationMinutes: res.estimatedDurationMinutes ?? 15,
+    distanceKm: res.estimatedDistanceKm ?? 0,
+    durationMinutes: res.estimatedDurationMinutes ?? 0,
     status: res.status,
     passenger: {
-      ...passenger,
-      id: res.passengerId || passenger.id,
+      id: res.passengerId,
+      name: `Passenger #${res.passengerId ? res.passengerId.slice(-4).toUpperCase() : ''}`.trim(),
+      phone: '',
+      rating: 5.0,
     },
     paymentId: res.paymentId,
   };
@@ -251,7 +196,7 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return tB - tA;
       });
 
-      const mapped = allRides.map((r, idx) => mapRideResponseToDriverTrip(r, idx));
+      const mapped = allRides.map((r) => mapRideResponseToDriverTrip(r));
 
       const assigned = mapped.find((r) => r.status === RideStatus.ASSIGNED);
       const ongoing = mapped.find(
@@ -262,6 +207,8 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setActiveTrip(ongoing);
       } else if (assigned) {
         setIncomingRide(assigned);
+      } else {
+        setIncomingRide(null);
       }
 
       setTripHistory(
@@ -289,6 +236,7 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [user?.id, refreshDriverData]);
 
+  // Poll for assigned rides from Ride Management Service while driver is AVAILABLE
   useEffect(() => {
     if (availabilityStatus !== 'AVAILABLE' || !user?.id || activeTrip) {
       return;
@@ -299,7 +247,7 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const rides = await rideService.getRidesByDriver(user.id, token || undefined);
         const assignedRide = rides.find((r) => r.status === RideStatus.ASSIGNED);
         if (assignedRide && (!incomingRide || incomingRide.id !== assignedRide.id)) {
-          setIncomingRide(mapRideResponseToDriverTrip(assignedRide, 0));
+          setIncomingRide(mapRideResponseToDriverTrip(assignedRide));
         }
       } catch {
         // ignore polling error
@@ -317,41 +265,35 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const nextStatus: AvailabilityStatus =
       availabilityStatus === 'OFFLINE' ? 'AVAILABLE' : 'OFFLINE';
 
-    if (nextStatus === 'AVAILABLE' && !activeVehicle && !driverProfile?.vehicle) {
-      throw new Error('Please register a vehicle before going online.');
+    if (nextStatus === 'AVAILABLE' && (!activeVehicle || !driverProfile?.id)) {
+      throw new Error('Please register your vehicle before going online.');
     }
 
     setIsLoadingDriver(true);
     try {
-      if (driverProfile?.id) {
-        const updated = await driverService.updateAvailability(
-          driverProfile.id,
-          { availabilityStatus: nextStatus },
-          token || undefined
-        );
-        setDriverProfile(updated);
-        setAvailabilityStatus(updated.availabilityStatus);
+      const updated = await driverService.updateAvailability(
+        driverProfile!.id,
+        { availabilityStatus: nextStatus },
+        token || undefined
+      );
+      setDriverProfile(updated);
+      setAvailabilityStatus(updated.availabilityStatus);
 
-        if (nextStatus === 'AVAILABLE') {
-          try {
-            await driverService.updateLocation(
-              driverProfile.id,
-              {
-                latitude: currentLocation.latitude,
-                longitude: currentLocation.longitude,
-                address: currentAddress,
-              },
-              token || undefined
-            );
-          } catch {
-            // ignore
-          }
+      if (nextStatus === 'AVAILABLE') {
+        try {
+          await driverService.updateLocation(
+            driverProfile!.id,
+            {
+              latitude: currentLocation.latitude,
+              longitude: currentLocation.longitude,
+              address: currentAddress,
+            },
+            token || undefined
+          );
+        } catch {
+          // ignore
         }
       } else {
-        setAvailabilityStatus(nextStatus);
-      }
-
-      if (nextStatus === 'OFFLINE') {
         setIncomingRide(null);
       }
     } finally {
@@ -377,10 +319,6 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   };
 
-  /**
-   * Register driver operational profile & vehicle (without requiring license number in vehicle form)
-   * POST /api/v1/drivers
-   */
   const registerOrUpdateDriverProfile = async (
     request: RegisterDriverRequest
   ): Promise<DriverResponse> => {
@@ -408,33 +346,24 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return created;
     } catch (err: any) {
       if (user?.id) {
-        try {
-          const existing = await driverService.getDriverByUserId(user.id, token || undefined);
-          const updated = await driverService.updateVehicle(
-            existing.id,
-            request.vehicle,
-            token || undefined
-          );
-          setDriverProfile(updated);
-          if (updated.vehicle) {
-            await upsertVehicleInList(updated.vehicle);
-          }
-          return updated;
-        } catch {
-          // ignore
+        const existing = await driverService.getDriverByUserId(user.id, token || undefined);
+        const updated = await driverService.updateVehicle(
+          existing.id,
+          request.vehicle,
+          token || undefined
+        );
+        setDriverProfile(updated);
+        if (updated.vehicle) {
+          await upsertVehicleInList(updated.vehicle);
         }
+        return updated;
       }
-      await upsertVehicleInList(request.vehicle);
       throw err;
     } finally {
       setIsLoadingDriver(false);
     }
   };
 
-  /**
-   * Update vehicle details
-   * PUT /api/v1/drivers/{driverId}/vehicle
-   */
   const updateDriverVehicle = async (request: UpdateVehicleRequest): Promise<DriverResponse> => {
     const normalizedVehicle: DriverVehicle = {
       ...request,
@@ -463,9 +392,6 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  /**
-   * Switch active vehicle from driver's registered vehicles list
-   */
   const selectActiveVehicle = async (licensePlate: string) => {
     const target = vehicles.find(
       (v) => v.licensePlate.toUpperCase() === licensePlate.toUpperCase()
@@ -473,22 +399,15 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!target) return;
     setActiveVehicle(target);
     if (driverProfile?.id) {
-      try {
-        const updated = await driverService.updateVehicle(
-          driverProfile.id,
-          target,
-          token || undefined
-        );
-        setDriverProfile(updated);
-      } catch {
-        // keep local active vehicle
-      }
+      const updated = await driverService.updateVehicle(
+        driverProfile.id,
+        target,
+        token || undefined
+      );
+      setDriverProfile(updated);
     }
   };
 
-  /**
-   * Verify Driver's License with License Number, Front & Back Cloudinary Image URLs, and Expiry Date
-   */
   const verifyDriverLicense = async (
     request: VerifyDriverLicenseRequest
   ): Promise<DriverLicenseVerification> => {
@@ -511,32 +430,17 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       if (driverProfile?.id) {
-        try {
-          const updated = await driverService.updateLicense(
-            driverProfile.id,
-            {
-              licenseNumber: verifiedRecord.licenseNumber,
-              expiryDate: verifiedRecord.expiryDate,
-              frontImageUrl: verifiedRecord.frontImageUrl,
-              backImageUrl: verifiedRecord.backImageUrl,
-            },
-            token || undefined
-          );
-          setDriverProfile(updated);
-        } catch {
-          setDriverProfile((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  licenseNumber: verifiedRecord.licenseNumber,
-                  licenseExpiryDate: verifiedRecord.expiryDate,
-                  licenseFrontImageUrl: verifiedRecord.frontImageUrl,
-                  licenseBackImageUrl: verifiedRecord.backImageUrl,
-                  licenseVerified: true,
-                }
-              : prev
-          );
-        }
+        const updated = await driverService.updateLicense(
+          driverProfile.id,
+          {
+            licenseNumber: verifiedRecord.licenseNumber,
+            expiryDate: verifiedRecord.expiryDate,
+            frontImageUrl: verifiedRecord.frontImageUrl,
+            backImageUrl: verifiedRecord.backImageUrl,
+          },
+          token || undefined
+        );
+        setDriverProfile(updated);
       }
 
       setLicenseVerification(verifiedRecord);
@@ -564,48 +468,12 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const simulateIncomingRide = () => {
-    const sampleIdx = Math.floor(Math.random() * SAMPLE_ROUTES.length);
-    const route = SAMPLE_ROUTES[sampleIdx];
-    const passenger = SAMPLE_PASSENGERS[sampleIdx % SAMPLE_PASSENGERS.length];
-    const vType = activeVehicle?.vehicleType || driverProfile?.vehicle?.vehicleType || VehicleType.TUK;
-
-    const simulated: DriverTripRecord = {
-      id: `ride_sim_${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      pickup: route.pickup,
-      destination: route.destination,
-      vehicleType: vType,
-      paymentMethod: PaymentMethod.CASH,
-      fare: route.fare,
-      netEarning: Math.round(route.fare * (1 - APP_CONFIG.platformCommissionRate)),
-      distanceKm: route.distanceKm,
-      durationMinutes: route.durationMinutes,
-      status: RideStatus.ASSIGNED,
-      passenger,
-    };
-
-    setIncomingRide(simulated);
-  };
-
   const acceptIncomingRide = async (): Promise<DriverTripRecord | null> => {
     if (!incomingRide) return null;
     setIsLoadingDriver(true);
     try {
-      let acceptedTrip: DriverTripRecord = {
-        ...incomingRide,
-        status: RideStatus.ACCEPTED,
-      };
-
-      if (!incomingRide.id.startsWith('ride_sim_')) {
-        try {
-          const res = await rideService.acceptRide(incomingRide.id, token || undefined);
-          acceptedTrip = mapRideResponseToDriverTrip(res);
-        } catch {
-          // fallback
-        }
-      }
-
+      const res = await rideService.acceptRide(incomingRide.id, token || undefined);
+      const acceptedTrip = mapRideResponseToDriverTrip(res);
       setActiveTrip(acceptedTrip);
       setIncomingRide(null);
       return acceptedTrip;
@@ -616,36 +484,25 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const declineIncomingRide = async () => {
     if (!incomingRide) return;
-    if (!incomingRide.id.startsWith('ride_sim_')) {
-      try {
-        await rideService.cancelRide(
-          incomingRide.id,
-          { cancellationReason: 'Declined by driver' },
-          token || undefined
-        );
-      } catch {
-        // ignore
-      }
+    setIsLoadingDriver(true);
+    try {
+      await rideService.cancelRide(
+        incomingRide.id,
+        { cancellationReason: 'Declined by driver' },
+        token || undefined
+      );
+      setIncomingRide(null);
+    } finally {
+      setIsLoadingDriver(false);
     }
-    setIncomingRide(null);
   };
 
   const startActiveTrip = async () => {
     if (!activeTrip) return;
     setIsLoadingDriver(true);
     try {
-      if (!activeTrip.id.startsWith('ride_sim_')) {
-        try {
-          await rideService.startRide(activeTrip.id, token || undefined);
-        } catch {
-          // fallback
-        }
-      }
-
-      setActiveTrip({
-        ...activeTrip,
-        status: RideStatus.IN_PROGRESS,
-      });
+      const res = await rideService.startRide(activeTrip.id, token || undefined);
+      setActiveTrip(mapRideResponseToDriverTrip(res));
       setAvailabilityStatus('ON_TRIP');
     } finally {
       setIsLoadingDriver(false);
@@ -656,35 +513,17 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!activeTrip) return;
     setIsLoadingDriver(true);
     try {
-      let finalFare = activeTrip.fare;
+      const res = await rideService.completeRide(
+        activeTrip.id,
+        {
+          actualDistanceKm: activeTrip.distanceKm,
+          actualDurationMinutes: activeTrip.durationMinutes,
+          finalFare: activeTrip.fare,
+        },
+        token || undefined
+      );
 
-      if (!activeTrip.id.startsWith('ride_sim_')) {
-        try {
-          const res = await rideService.completeRide(
-            activeTrip.id,
-            {
-              actualDistanceKm: activeTrip.distanceKm,
-              actualDurationMinutes: activeTrip.durationMinutes,
-              finalFare: activeTrip.fare,
-            },
-            token || undefined
-          );
-          if (res.finalFare) {
-            finalFare = res.finalFare;
-          }
-        } catch {
-          // fallback
-        }
-      }
-
-      const completedRecord: DriverTripRecord = {
-        ...activeTrip,
-        fare: finalFare,
-        netEarning: Math.round(finalFare * (1 - APP_CONFIG.platformCommissionRate)),
-        status: RideStatus.COMPLETED,
-        completedAt: new Date().toISOString(),
-      };
-
+      const completedRecord = mapRideResponseToDriverTrip(res);
       setTripHistory((prev) => [completedRecord, ...prev]);
       setActiveTrip(null);
       setAvailabilityStatus('AVAILABLE');
@@ -697,23 +536,12 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!activeTrip) return;
     setIsLoadingDriver(true);
     try {
-      if (!activeTrip.id.startsWith('ride_sim_')) {
-        try {
-          await rideService.cancelRide(
-            activeTrip.id,
-            { cancellationReason: reason },
-            token || undefined
-          );
-        } catch {
-          // fallback
-        }
-      }
-
-      const cancelledRecord: DriverTripRecord = {
-        ...activeTrip,
-        status: RideStatus.CANCELLED,
-      };
-
+      const res = await rideService.cancelRide(
+        activeTrip.id,
+        { cancellationReason: reason },
+        token || undefined
+      );
+      const cancelledRecord = mapRideResponseToDriverTrip(res);
       setTripHistory((prev) => [cancelledRecord, ...prev]);
       setActiveTrip(null);
       setAvailabilityStatus('AVAILABLE');
@@ -749,10 +577,11 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     let totalEarnings = 0;
     let todayTrips = 0;
     let weekTrips = 0;
+    let todayMinutes = 0;
 
     for (const trip of completed) {
       const ts = new Date(trip.completedAt || trip.createdAt).getTime();
-      const net = trip.netEarning || Math.round(trip.fare * 0.88);
+      const net = trip.netEarning || Math.round(trip.fare * (1 - APP_CONFIG.platformCommissionRate));
       totalEarnings += net;
       if (ts >= startOfWeek) {
         weekEarnings += net;
@@ -761,6 +590,7 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (ts >= startOfToday) {
         todayEarnings += net;
         todayTrips += 1;
+        todayMinutes += trip.durationMinutes || 0;
       }
     }
 
@@ -770,11 +600,11 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       totalEarnings,
       todayTrips,
       weekTrips,
-      totalCompletedTrips: (driverProfile?.totalTrips || 0) + completed.length,
-      onlineHoursToday: isOnline ? 4.5 : 3.2,
-      walletBalance: (user?.walletBalance || 12450) + todayEarnings,
+      totalCompletedTrips: driverProfile?.totalTrips ?? completed.length,
+      onlineHoursToday: Number((todayMinutes / 60).toFixed(1)),
+      walletBalance: totalEarnings,
     };
-  }, [tripHistory, driverProfile?.totalTrips, isOnline, user?.walletBalance]);
+  }, [tripHistory, driverProfile?.totalTrips]);
 
   return (
     <DriverContext.Provider
@@ -797,7 +627,6 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         verifyDriverLicense,
         syncDriverLocation,
         refreshDriverData,
-        simulateIncomingRide,
         acceptIncomingRide,
         declineIncomingRide,
         startActiveTrip,
