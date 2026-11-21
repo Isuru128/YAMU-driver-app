@@ -20,13 +20,13 @@ export const ENV = {
     'http://localhost:8083',
 
   SOCKET_URL: process.env.EXPO_PUBLIC_SOCKET_URL || '',
-  MAPS_API_KEY: process.env.EXPO_PUBLIC_MAPS_KEY || 'AIzaSyCPbCLkwQSee72-fCbDatw39MKe3hQiKQI',
+  MAPS_API_KEY: process.env.EXPO_PUBLIC_MAPS_KEY || '',
 
-  // Cloudinary URL & Credentials
+  // Cloudinary URL & Credentials (loaded strictly from local .env)
   CLOUDINARY_URL:
     process.env.EXPO_PUBLIC_CLOUDINARY_URL ||
     process.env.CLOUDINARY_URL ||
-  'cloudinary://748531722447387:jX9XZ_Z2a4_R8fIVwLrTST4uqGY@swsqjk22',
+    '',
   CLOUDINARY_UPLOAD_PRESET:
     process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'yamu_driver_licenses',
 
