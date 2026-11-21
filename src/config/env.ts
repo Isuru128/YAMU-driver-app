@@ -20,7 +20,7 @@ export const ENV = {
     'http://localhost:8083',
 
   SOCKET_URL: process.env.EXPO_PUBLIC_SOCKET_URL || '',
-  MAPS_API_KEY: process.env.EXPO_PUBLIC_MAPS_KEY || '',
+  MAPS_API_KEY: process.env.EXPO_PUBLIC_MAPS_KEY || 'AIzaSyCPbCLkwQSee72-fCbDatw39MKe3hQiKQI',
 
   // Cloudinary URL & Credentials
   CLOUDINARY_URL:
