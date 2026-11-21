@@ -30,11 +30,14 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files (strictly block all .env files except .env.example)
 .env
 .env.*
 .env*.local
+**/.env
+**/.env.*
 !.env.example
+!**/.env.example
 
 
 # typescript
