@@ -42,7 +42,6 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
     activeTrip,
     earnings,
     toggleOnlineStatus,
-    simulateIncomingRide,
     acceptIncomingRide,
     declineIncomingRide,
     syncDriverLocation,
@@ -60,11 +59,12 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
     } catch (err: any) {
       Alert.alert(
         'Active Vehicle Required',
-        err?.message || 'Please add a vehicle from your Driver Profile and tick an active vehicle before going online.',
+        err?.message ||
+          'Please register your vehicle in Driver Profile before going online.',
         [
           { text: 'Cancel', style: 'cancel' },
           {
-            text: 'Add a vehicle',
+            text: 'Setup Vehicle',
             onPress: () => navigation.navigate('VehicleManagement', { mode: 'add' }),
           },
         ]
@@ -73,9 +73,13 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const handleAcceptOffer = async () => {
-    const trip = await acceptIncomingRide();
-    if (trip) {
-      navigation.navigate('ActiveTrip');
+    try {
+      const trip = await acceptIncomingRide();
+      if (trip) {
+        navigation.navigate('ActiveTrip');
+      }
+    } catch (err: any) {
+      Alert.alert('Could Not Accept Ride', err?.message || 'Failed to accept ride request.');
     }
   };
 
@@ -131,7 +135,6 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
             />
           ) : (
             <View style={styles.radarCard}>
-              {/* Vehicle Setup Banner if no active vehicle registered */}
               {!activeVehicle ? (
                 <TouchableOpacity
                   style={styles.setupBanner}
@@ -141,7 +144,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
                   <View style={styles.setupBannerTextWrap}>
                     <Text style={styles.setupBannerTitle}>Add a Vehicle to Go Online</Text>
                     <Text style={styles.setupBannerSub}>
-                      Register your license & vehicle in Driver Profile and tick an active vehicle
+                      Register your vehicle & verify your driving license in Account settings
                     </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
@@ -164,18 +167,17 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
                       {vehicles.length > 1 ? ` • ${vehicles.length} vehicles` : ''}
                     </Text>
                   </View>
-                  <Text style={styles.changeLink}>Switch</Text>
+                  <Text style={styles.changeLink}>Manage</Text>
                 </TouchableOpacity>
               )}
 
               <View style={styles.divider} />
 
-              {/* Status & Radar */}
               <View style={styles.statusRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.radarTitle}>
                     {isOnline
-                      ? 'Finding trips near you...'
+                      ? 'Online — Waiting for ride requests'
                       : 'You are currently offline'}
                   </Text>
                   <Text style={styles.radarSubtitle} numberOfLines={1}>
@@ -190,24 +192,13 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
                 </View>
               </View>
 
-              {isOnline ? (
-                <Button
-                  title="Simulate Incoming Ride Request"
-                  variant="secondary"
-                  size="medium"
-                  onPress={simulateIncomingRide}
-                  icon={<Ionicons name="notifications-outline" size={18} color={Colors.white} />}
-                  style={styles.simBtn}
-                />
-              ) : (
-                <Button
-                  title="Go Online to Start Earning"
-                  variant="primary"
-                  onPress={handleToggleOnline}
-                  loading={isLoadingDriver}
-                  style={styles.simBtn}
-                />
-              )}
+              <Button
+                title={isOnline ? 'Go Offline' : 'Go Online to Start Earning'}
+                variant={isOnline ? 'outline' : 'primary'}
+                onPress={handleToggleOnline}
+                loading={isLoadingDriver}
+                style={styles.actionBtn}
+              />
             </View>
           )}
         </View>
@@ -359,7 +350,7 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontWeight: '600',
   },
-  simBtn: {
+  actionBtn: {
     marginTop: 2,
   },
 });
