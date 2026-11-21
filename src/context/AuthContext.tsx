@@ -20,8 +20,6 @@ export interface AuthContextType {
   register: (request: RegisterRequest) => Promise<AuthResponse>;
   refreshProfile: () => Promise<AccountResponse | null>;
   updateProfile: (request: UpdateProfileRequest) => Promise<AccountResponse>;
-  loginWithPhone: (phone: string) => Promise<boolean>;
-  verifyOtp: (phone: string, otp: string) => Promise<boolean>;
   logout: () => Promise<void>;
   updateUser: (updated: Partial<UserProfile>) => void;
 }
@@ -42,8 +40,8 @@ const mapAccountToUserProfile = (
   role: acc.role,
   status: acc.status,
   profile: acc.profile,
-  rating: existing?.rating ?? 4.95,
-  walletBalance: existing?.walletBalance ?? 12450,
+  rating: existing?.rating ?? 5.0,
+  walletBalance: existing?.walletBalance ?? 0,
   createdAt: acc.createdAt,
   updatedAt: acc.updatedAt,
 });
@@ -60,38 +58,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const savedToken = await storageService.getItem('driverAuthToken');
         const savedAccountId = await storageService.getItem('driverAccountId');
 
-        if (savedToken) {
+        if (savedToken && savedAccountId) {
           setToken(savedToken);
           apiClient.setToken(savedToken);
-          setIsAuthenticated(true);
 
-          if (savedAccountId) {
-            const cachedAvatar = await storageService.getItem(`driverAvatar_${savedAccountId}`);
-            try {
-              const freshAccount = await accountService.getAccountById(savedAccountId, savedToken);
-              if (freshAccount.role && freshAccount.role === 'PASSENGER') {
-                await storageService.removeItem('driverAuthToken');
-                await storageService.removeItem('driverAccountId');
-                setToken(null);
-                apiClient.setToken(null);
-                setIsAuthenticated(false);
-                setUser(null);
-                return;
-              }
-              setUser((prev) => {
-                const mapped = mapAccountToUserProfile(freshAccount, prev);
-                if (!mapped.avatarUrl && cachedAvatar) {
-                  mapped.avatarUrl = cachedAvatar;
-                }
-                return mapped;
-              });
-            } catch {
-              // Keep offline session
-            }
+          const cachedAvatar = await storageService.getItem(`driverAvatar_${savedAccountId}`);
+          const freshAccount = await accountService.getAccountById(savedAccountId, savedToken);
+          if (freshAccount.role && freshAccount.role === 'PASSENGER') {
+            await storageService.removeItem('driverAuthToken');
+            await storageService.removeItem('driverAccountId');
+            setToken(null);
+            apiClient.setToken(null);
+            setIsAuthenticated(false);
+            setUser(null);
+            return;
           }
+          setUser((prev) => {
+            const mapped = mapAccountToUserProfile(freshAccount, prev);
+            if (!mapped.avatarUrl && cachedAvatar) {
+              mapped.avatarUrl = cachedAvatar;
+            }
+            return mapped;
+          });
+          setIsAuthenticated(true);
         }
       } catch {
-        // ignore
+        await storageService.removeItem('driverAuthToken');
+        await storageService.removeItem('driverAccountId');
+        setToken(null);
+        apiClient.setToken(null);
+        setIsAuthenticated(false);
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
@@ -196,66 +193,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return mapped;
       });
       return updatedAccount;
-    } catch (err) {
-      // If demo/OTP session or offline, still update local user state
-      if (request.profile?.profilePictureUrl || request.firstName || request.lastName) {
-        setUser((prev) =>
-          prev
-            ? {
-                ...prev,
-                firstName: request.firstName ?? prev.firstName,
-                lastName: request.lastName ?? prev.lastName,
-                fullName:
-                  `${request.firstName ?? prev.firstName ?? ''} ${
-                    request.lastName ?? prev.lastName ?? ''
-                  }`.trim() || prev.fullName,
-                phoneNumber: request.phoneNumber ?? prev.phoneNumber,
-                avatarUrl: request.profile?.profilePictureUrl ?? prev.avatarUrl,
-                profile: {
-                  ...prev.profile,
-                  ...request.profile,
-                },
-              }
-            : prev
-        );
-      }
-      throw err;
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const loginWithPhone = async (_phone: string): Promise<boolean> => {
-    setIsLoading(true);
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    setIsLoading(false);
-    return true;
-  };
-
-  const verifyOtp = async (phone: string, otp: string): Promise<boolean> => {
-    setIsLoading(true);
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    if (otp.length === 4) {
-      await storageService.setItem('driverAuthToken', 'demo_driver_jwt_token_yamu');
-      const otpUser: UserProfile = {
-        id: `drv_usr_${Date.now()}`,
-        fullName: 'Kamal Perera',
-        firstName: 'Kamal',
-        lastName: 'Perera',
-        phoneNumber: phone,
-        email: 'kamal.driver@yamu.lk',
-        role: 'DRIVER',
-        status: 'ACTIVE',
-        rating: 4.95,
-        walletBalance: 14800,
-      };
-      setUser(otpUser);
-      setIsAuthenticated(true);
-      setIsLoading(false);
-      return true;
-    }
-    setIsLoading(false);
-    return false;
   };
 
   const logout = async () => {
@@ -284,8 +224,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         register,
         refreshProfile,
         updateProfile,
-        loginWithPhone,
-        verifyOtp,
         logout,
         updateUser,
       }}
