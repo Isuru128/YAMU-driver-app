@@ -8,26 +8,20 @@ import { Input } from '../../components/common/Input';
 import { Button } from '../../components/common/Button';
 import { Colors } from '../../constants/colors';
 import { Typography } from '../../constants/typography';
-import { useAuth } from '../../hooks/useAuth';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'OtpVerification'>;
 
 export const OtpVerificationScreen: React.FC<Props> = ({ route, navigation }) => {
   const { phoneNumber } = route.params;
-  const { verifyOtp, isLoading } = useAuth();
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
 
-  const handleVerify = async () => {
+  const handleVerify = () => {
     if (otp.length !== 4) {
-      setError('Please enter a 4-digit OTP (e.g. 1234)');
+      setError('Please enter a valid 4-digit verification code.');
       return;
     }
-    setError('');
-    const success = await verifyOtp(phoneNumber, otp);
-    if (!success) {
-      setError('Invalid verification code.');
-    }
+    setError('Please sign in with your registered email and password.');
   };
 
   return (
@@ -35,13 +29,11 @@ export const OtpVerificationScreen: React.FC<Props> = ({ route, navigation }) =>
       <AppHeader title="Verify Phone" onBack={() => navigation.goBack()} />
       <View style={styles.container}>
         <Text style={styles.title}>Enter 4-digit code</Text>
-        <Text style={styles.subtitle}>
-          Sent to {phoneNumber}. Use any 4 digits (e.g. 1234) for demo verification.
-        </Text>
+        <Text style={styles.subtitle}>Sent to {phoneNumber}</Text>
 
         <Input
           label="Verification Code"
-          placeholder="1234"
+          placeholder="0000"
           value={otp}
           onChangeText={setOtp}
           keyboardType="number-pad"
@@ -52,7 +44,6 @@ export const OtpVerificationScreen: React.FC<Props> = ({ route, navigation }) =>
         <Button
           title="Verify & Continue"
           onPress={handleVerify}
-          loading={isLoading}
           style={styles.button}
         />
       </View>
@@ -79,4 +70,3 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
 });
-
