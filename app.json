@@ -7,10 +7,7 @@
     "icon": "./assets/1.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true,
-      "config": {
-        "googleMapsApiKey": "AIzaSyCPbCLkwQSee72-fCbDatw39MKe3hQiKQI"
-      }
+      "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
@@ -18,11 +15,6 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      },
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyCPbCLkwQSee72-fCbDatw39MKe3hQiKQI"
-        }
       },
       "predictiveBackGestureEnabled": false
     },
