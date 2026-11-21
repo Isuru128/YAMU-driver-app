@@ -30,7 +30,7 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files (strictly block all .env files except .env.example)
+# local env & secret files (strictly block all .env and secret key files except .env.example)
 .env
 .env.*
 .env*.local
@@ -38,6 +38,16 @@ yarn-error.*
 **/.env.*
 !.env.example
 !**/.env.example
+*.keystore
+*.cer
+*.crt
+*.pfx
+*credentials*.json
+service-account*.json
+google-services.json
+GoogleService-Info.plist
+secrets.*
+*.secret
 
 
 # typescript
