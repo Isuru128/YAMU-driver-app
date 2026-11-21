@@ -52,7 +52,7 @@ export const WhiteThemedMap: React.FC<WhiteThemedMapProps> = ({
   const leafletHtml = useMemo(() => {
     const centerLat = initialCoordsRef.current.latitude;
     const centerLng = initialCoordsRef.current.longitude;
-    const apiKey = ENV.MAPS_API_KEY || 'AIzaSyCPbCLkwQSee72-fCbDatw39MKe3hQiKQI';
+    const apiKey = ENV.MAPS_API_KEY;
 
     return `<!DOCTYPE html>
 <html>
