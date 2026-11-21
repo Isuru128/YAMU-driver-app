@@ -20,11 +20,9 @@ export const TripDetailsScreen: React.FC<Props> = ({ route, navigation }) => {
 
   useEffect(() => {
     let active = true;
-    if (!trip.id.startsWith('ride_sim_')) {
-      getTripStatusHistory(trip.id).then((items) => {
-        if (active) setHistory(items);
-      });
-    }
+    getTripStatusHistory(trip.id).then((items) => {
+      if (active) setHistory(items);
+    });
     return () => {
       active = false;
     };
@@ -198,4 +196,3 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
 });
-
