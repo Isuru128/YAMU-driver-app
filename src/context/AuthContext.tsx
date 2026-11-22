@@ -11,6 +11,12 @@ import { storageService } from '../services/storageService';
 import { accountService } from '../services/accountService';
 import { apiClient } from '../api/client';
 
+const STORAGE_KEYS = {
+  TOKEN: 'yamu_driver_auth_token',
+  ACCOUNT_ID: 'yamu_driver_account_id',
+  USER_PROFILE: 'yamu_driver_user_profile',
+};
+
 export interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
@@ -52,46 +58,90 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<UserProfile | null>(null);
 
+  const persistSession = async (jwtToken: string, userProfile: UserProfile) => {
+    await Promise.all([
+      storageService.setItem(STORAGE_KEYS.TOKEN, jwtToken),
+      storageService.setItem(STORAGE_KEYS.ACCOUNT_ID, userProfile.id),
+      storageService.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(userProfile)),
+    ]);
+  };
+
+  const clearPersistedSession = async () => {
+    await Promise.all([
+      storageService.removeItem(STORAGE_KEYS.TOKEN),
+      storageService.removeItem(STORAGE_KEYS.ACCOUNT_ID),
+      storageService.removeItem(STORAGE_KEYS.USER_PROFILE),
+    ]);
+  };
+
+  // Automatically restore driver session on app startup without forcing re-login
   useEffect(() => {
     const restoreSession = async () => {
       try {
-        const savedToken = await storageService.getItem('driverAuthToken');
-        const savedAccountId = await storageService.getItem('driverAccountId');
+        const [savedToken, savedAccountId, savedProfileJson] = await Promise.all([
+          storageService.getItem(STORAGE_KEYS.TOKEN),
+          storageService.getItem(STORAGE_KEYS.ACCOUNT_ID),
+          storageService.getItem(STORAGE_KEYS.USER_PROFILE),
+        ]);
 
-        if (savedToken && savedAccountId) {
+        if (savedToken && (savedAccountId || savedProfileJson)) {
+          let cachedUser: UserProfile | null = null;
+          if (savedProfileJson) {
+            try {
+              cachedUser = JSON.parse(savedProfileJson);
+            } catch {
+              // ignore JSON parse error
+            }
+          }
+
+          // Immediately sign the driver in using persisted device credentials
           setToken(savedToken);
           apiClient.setToken(savedToken);
-
-          const cachedAvatar = await storageService.getItem(`driverAvatar_${savedAccountId}`);
-          const freshAccount = await accountService.getAccountById(savedAccountId, savedToken);
-          if (freshAccount.role && freshAccount.role === 'PASSENGER') {
-            await storageService.removeItem('driverAuthToken');
-            await storageService.removeItem('driverAccountId');
-            setToken(null);
-            apiClient.setToken(null);
-            setIsAuthenticated(false);
-            setUser(null);
-            return;
+          if (cachedUser) {
+            setUser(cachedUser);
           }
-          setUser((prev) => {
-            const mapped = mapAccountToUserProfile(freshAccount, prev);
-            if (!mapped.avatarUrl && cachedAvatar) {
-              mapped.avatarUrl = cachedAvatar;
-            }
-            return mapped;
-          });
           setIsAuthenticated(true);
+          setIsLoading(false);
+
+          // Silently sync latest profile in the background
+          const targetId = savedAccountId || cachedUser?.id;
+          if (targetId) {
+            try {
+              const cachedAvatar = await storageService.getItem(`driverAvatar_${targetId}`);
+              const freshAccount = await accountService.getAccountById(targetId, savedToken);
+
+              if (
+                (freshAccount.role && freshAccount.role === 'PASSENGER') ||
+                freshAccount.status === 'SUSPENDED' ||
+                freshAccount.status === 'DEACTIVATED'
+              ) {
+                await clearPersistedSession();
+                setToken(null);
+                apiClient.setToken(null);
+                setIsAuthenticated(false);
+                setUser(null);
+                return;
+              }
+
+              const syncedUser = mapAccountToUserProfile(freshAccount, cachedUser);
+              if (!syncedUser.avatarUrl && cachedAvatar) {
+                syncedUser.avatarUrl = cachedAvatar;
+              }
+              setUser(syncedUser);
+              await storageService.setItem(
+                STORAGE_KEYS.USER_PROFILE,
+                JSON.stringify(syncedUser)
+              );
+            } catch {
+              // Keep persisted session active even if backend is cold-starting or offline
+            }
+          }
+          return;
         }
       } catch {
-        await storageService.removeItem('driverAuthToken');
-        await storageService.removeItem('driverAccountId');
-        setToken(null);
-        apiClient.setToken(null);
-        setIsAuthenticated(false);
-        setUser(null);
-      } finally {
-        setIsLoading(false);
+        // ignore storage read error
       }
+      setIsLoading(false);
     };
 
     restoreSession();
@@ -121,11 +171,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setUser(mappedUser);
       setIsAuthenticated(true);
+      await persistSession(response.token, mappedUser);
 
-      await storageService.setItem('driverAuthToken', response.token);
-      if (response.account?.id) {
-        await storageService.setItem('driverAccountId', response.account.id);
-      }
       return response;
     } finally {
       setIsLoading(false);
@@ -145,11 +192,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const mappedUser = mapAccountToUserProfile(response.account, user);
       setUser(mappedUser);
       setIsAuthenticated(true);
+      await persistSession(response.token, mappedUser);
 
-      await storageService.setItem('driverAuthToken', response.token);
-      if (response.account?.id) {
-        await storageService.setItem('driverAccountId', response.account.id);
-      }
       return response;
     } finally {
       setIsLoading(false);
@@ -163,12 +207,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     try {
       const accountData = await accountService.getAccountById(currentId, token || undefined);
-      setUser((prev) => mapAccountToUserProfile(accountData, prev));
+      const updatedUser = mapAccountToUserProfile(accountData, user);
+      setUser(updatedUser);
+      await storageService.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(updatedUser));
       return accountData;
     } finally {
       setIsLoading(false);
     }
-  }, [user?.id, token]);
+  }, [user, token]);
 
   const updateProfile = async (request: UpdateProfileRequest): Promise<AccountResponse> => {
     const currentId = user?.id;
@@ -185,13 +231,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         request,
         token || undefined
       );
-      setUser((prev) => {
-        const mapped = mapAccountToUserProfile(updatedAccount, prev);
-        if (request.profile?.profilePictureUrl) {
-          mapped.avatarUrl = request.profile.profilePictureUrl;
-        }
-        return mapped;
-      });
+      const mapped = mapAccountToUserProfile(updatedAccount, user);
+      if (request.profile?.profilePictureUrl) {
+        mapped.avatarUrl = request.profile.profilePictureUrl;
+      }
+      setUser(mapped);
+      await storageService.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(mapped));
       return updatedAccount;
     } finally {
       setIsLoading(false);
@@ -201,15 +246,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     apiClient.setToken(null);
     setToken(null);
-    await storageService.removeItem('driverAuthToken');
-    await storageService.removeItem('driverAccountId');
+    await clearPersistedSession();
     setIsAuthenticated(false);
     setUser(null);
   };
 
   const updateUser = (updated: Partial<UserProfile>) => {
     if (user) {
-      setUser({ ...user, ...updated });
+      const nextUser = { ...user, ...updated };
+      setUser(nextUser);
+      storageService.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(nextUser));
     }
   };
 
