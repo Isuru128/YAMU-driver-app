@@ -10,12 +10,17 @@ import { LicenseVerificationScreen } from '../screens/vehicle/LicenseVerificatio
 import { TripDetailsScreen } from '../screens/trips/TripDetailsScreen';
 import { EditProfileScreen } from '../screens/profile/EditProfileScreen';
 import { EmergencySupportScreen } from '../screens/profile/EmergencySupportScreen';
+import { LoadingIndicator } from '../components/common/LoadingIndicator';
 import { useAuth } from '../hooks/useAuth';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export const RootNavigator: React.FC = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading && !isAuthenticated) {
+    return <LoadingIndicator message="Restoring driver session..." />;
+  }
 
   return (
     <NavigationContainer>
