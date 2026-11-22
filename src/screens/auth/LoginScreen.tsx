@@ -17,7 +17,7 @@ import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
 import { Colors } from '../../constants/colors';
 import { Typography } from '../../constants/typography';
-import { isValidEmail } from '../../utils/validators';
+import { isValidEmail, isValidSriLankanPhone } from '../../utils/validators';
 import { useAuth } from '../../hooks/useAuth';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
@@ -25,20 +25,26 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 export const LoginScreen: React.FC<Props> = ({ navigation }) => {
   const { login, isLoading } = useAuth();
 
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
 
-  const handleEmailLogin = async () => {
+  const isPhoneInput =
+    identifier.trim().length > 0 &&
+    !identifier.includes('@') &&
+    /^[+\d\s-]+$/.test(identifier.trim());
+
+  const handleLogin = async () => {
     setGeneralError(null);
     const errs: Record<string, string> = {};
+    const trimmed = identifier.trim();
 
-    if (!email.trim()) {
-      errs.email = 'Email is required';
-    } else if (!isValidEmail(email)) {
-      errs.email = 'Enter a valid email address';
+    if (!trimmed) {
+      errs.identifier = 'Email or phone number is required';
+    } else if (!isValidEmail(trimmed) && !isValidSriLankanPhone(trimmed)) {
+      errs.identifier = 'Enter a valid email address or Sri Lankan phone number (e.g. 077 123 4567)';
     }
 
     if (!password) {
@@ -52,9 +58,13 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
     setErrors({});
 
     try {
-      await login({ email, password });
+      await login({
+        identifier: trimmed,
+        email: trimmed,
+        password,
+      });
     } catch (err: any) {
-      const msg = err?.message || 'Invalid email or password. Please try again.';
+      const msg = err?.message || 'Invalid credentials. Please try again.';
       setGeneralError(msg);
       Alert.alert('Login Failed', msg);
     }
@@ -63,10 +73,17 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
   return (
     <SafeScreen>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 16 : 0}
         style={styles.keyboardView}
       >
-        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets={true}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.brandHeader}>
             <View style={styles.partnerPill}>
               <Ionicons name="car-sport" size={14} color={Colors.white} />
@@ -85,20 +102,29 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
 
           <View style={styles.formSection}>
             <Text style={styles.title}>Driver Sign In</Text>
-            <Text style={styles.subtitle}>Sign in with your registered driver account</Text>
+            <Text style={styles.subtitle}>
+              Sign in with your registered email or phone number
+            </Text>
 
             <Input
-              label="Email Address"
-              placeholder="name@example.com"
-              value={email}
+              label="Email or Phone Number"
+              placeholder="name@example.com or 077 123 4567"
+              value={identifier}
               onChangeText={(val) => {
-                setEmail(val);
-                if (errors.email) setErrors((prev) => ({ ...prev, email: '' }));
+                setIdentifier(val);
+                if (errors.identifier) setErrors((prev) => ({ ...prev, identifier: '' }));
               }}
               keyboardType="email-address"
               autoCapitalize="none"
-              error={errors.email}
-              leftIcon={<Ionicons name="mail-outline" size={20} color={Colors.textMuted} />}
+              returnKeyType="next"
+              error={errors.identifier}
+              leftIcon={
+                <Ionicons
+                  name={isPhoneInput ? 'call-outline' : 'person-outline'}
+                  size={20}
+                  color={Colors.textMuted}
+                />
+              }
             />
 
             <Input
@@ -111,6 +137,8 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
               }}
               secureTextEntry={!showPassword}
               autoCapitalize="none"
+              returnKeyType="done"
+              onSubmitEditing={handleLogin}
               error={errors.password}
               leftIcon={
                 <Ionicons name="lock-closed-outline" size={20} color={Colors.textMuted} />
@@ -127,7 +155,7 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
 
             <Button
               title="Sign In to Drive"
-              onPress={handleEmailLogin}
+              onPress={handleLogin}
               loading={isLoading}
               style={styles.button}
             />
@@ -157,8 +185,9 @@ const styles = StyleSheet.create({
   },
   container: {
     flexGrow: 1,
-    padding: 24,
-    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 32,
+    paddingBottom: 120,
   },
   brandHeader: {
     marginTop: 24,
@@ -209,7 +238,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   formSection: {
-    marginVertical: 24,
+    marginTop: 24,
+    marginBottom: 14,
   },
   title: {
     ...Typography.h2,
@@ -225,7 +255,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   footerContainer: {
-    marginTop: 'auto',
+    marginTop: 4,
   },
   signupRow: {
     flexDirection: 'row',
