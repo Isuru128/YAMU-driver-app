@@ -1,22 +1,53 @@
-class MemoryStorage {
-  private memory = new Map<string, string>();
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+/**
+ * Persistent Device Storage Service backed by @react-native-async-storage/async-storage
+ * Keeps driver JWT tokens, profile data, vehicles, and license verification across app restarts.
+ */
+class PersistentStorage {
+  private memoryCache = new Map<string, string>();
 
   async getItem(key: string): Promise<string | null> {
-    return this.memory.get(key) || null;
+    if (this.memoryCache.has(key)) {
+      return this.memoryCache.get(key) || null;
+    }
+    try {
+      const value = await AsyncStorage.getItem(key);
+      if (value !== null) {
+        this.memoryCache.set(key, value);
+      }
+      return value;
+    } catch {
+      return this.memoryCache.get(key) || null;
+    }
   }
 
   async setItem(key: string, value: string): Promise<void> {
-    this.memory.set(key, value);
+    this.memoryCache.set(key, value);
+    try {
+      await AsyncStorage.setItem(key, value);
+    } catch {
+      // Fallback kept in memoryCache
+    }
   }
 
   async removeItem(key: string): Promise<void> {
-    this.memory.delete(key);
+    this.memoryCache.delete(key);
+    try {
+      await AsyncStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
   }
 
   async clear(): Promise<void> {
-    this.memory.clear();
+    this.memoryCache.clear();
+    try {
+      await AsyncStorage.clear();
+    } catch {
+      // ignore
+    }
   }
 }
 
-export const storageService = new MemoryStorage();
-
+export const storageService = new PersistentStorage();
