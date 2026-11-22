@@ -33,7 +33,9 @@ export interface RegisterRequest {
 }
 
 export interface LoginRequest {
-  email: string;
+  email?: string;
+  phoneNumber?: string;
+  identifier?: string;
   password: string;
 }
 
@@ -50,4 +52,3 @@ export interface UpdateProfileRequest {
   phoneNumber?: string;
   profile?: ProfileDto;
 }
-
