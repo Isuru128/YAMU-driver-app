@@ -108,7 +108,7 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
 
             <Input
               label="Email or Phone Number"
-              placeholder="name@example.com or 077 123 4567"
+              placeholder="email or phone"
               value={identifier}
               onChangeText={(val) => {
                 setIdentifier(val);
