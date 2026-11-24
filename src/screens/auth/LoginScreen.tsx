@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
   },
   brandHeader: {
-    marginTop: 24,
+    marginTop: 72,
     alignItems: 'center',
   },
   partnerPill: {
@@ -238,7 +238,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   formSection: {
-    marginTop: 24,
+    marginTop: 48,
     marginBottom: 14,
   },
   title: {
