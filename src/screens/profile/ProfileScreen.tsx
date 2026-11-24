@@ -32,7 +32,14 @@ type Props = CompositeScreenProps<
 
 export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
   const { user, updateProfile, updateUser, logout } = useAuth();
-  const { driverProfile, activeVehicle, licenseVerification, availabilityStatus } = useDriver();
+  const {
+    driverProfile,
+    vehicles,
+    activeVehicle,
+    licenseVerification,
+    availabilityStatus,
+    selectActiveVehicle,
+  } = useDriver();
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const profileImageUrl = user?.avatarUrl || user?.profile?.profilePictureUrl;
@@ -44,6 +51,22 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
         !driverProfile.licenseNumber.startsWith('PENDING-') &&
         driverProfile.licenseFrontImageUrl
     );
+
+  const verifiedLicenseNumber =
+    licenseVerification?.licenseNumber ||
+    (driverProfile?.licenseNumber && !driverProfile.licenseNumber.startsWith('PENDING-')
+      ? driverProfile.licenseNumber
+      : '');
+
+  const verifiedExpiryDate =
+    licenseVerification?.expiryDate || driverProfile?.licenseExpiryDate || '';
+
+  const allVehicles =
+    vehicles.length > 0
+      ? vehicles
+      : driverProfile?.vehicle
+      ? [driverProfile.vehicle]
+      : [];
 
   const handleQuickAvatarUpload = async (useCamera: boolean) => {
     try {
@@ -76,7 +99,10 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
           });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const localUri = result.assets[0].uri;
+        const asset = result.assets[0];
+        const localUri = asset.base64
+          ? `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}`
+          : asset.uri;
         setUploadingAvatar(true);
         try {
           const uploadRes = await cloudinaryService.uploadProfileImage(localUri, user?.id);
@@ -123,13 +149,11 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
     ]);
   };
 
-  const currentVehicle = activeVehicle || driverProfile?.vehicle;
-
   return (
     <SafeScreen>
       <AppHeader title="Driver Account" />
       <ScrollView contentContainerStyle={styles.container}>
-        {/* Driver Header Card with Uploadable Profile Photo */}
+        {/* 1. Driver Details Card */}
         <Card style={styles.profileCard}>
           <TouchableOpacity
             activeOpacity={0.85}
@@ -162,7 +186,7 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
               <View style={styles.badge}>
                 <Ionicons name="star" size={12} color={Colors.secondary} />
                 <Text style={styles.badgeText}>
-                  {(driverProfile?.rating ?? user?.rating ?? 4.95).toFixed(2)}
+                  {(driverProfile?.rating ?? user?.rating ?? 5.0).toFixed(2)}
                 </Text>
               </View>
               <View style={styles.badge}>
@@ -172,35 +196,35 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         </Card>
 
-        {/* Vehicle Summary Card */}
-        <Card style={styles.vehicleCard}>
-          <View style={styles.vehicleHeader}>
-            <Text style={styles.sectionTitle}>Assigned Vehicle</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('VehicleManagement')}>
-              <Text style={styles.editLink}>Edit</Text>
-            </TouchableOpacity>
-          </View>
-
-          {currentVehicle ? (
-            <View style={styles.vehicleDetails}>
-              <Text style={styles.vehicleMain}>
-                {currentVehicle.make} {currentVehicle.model} ({currentVehicle.vehicleType})
-              </Text>
-              <Text style={styles.vehicleMeta}>
-                Plate: {currentVehicle.licensePlate} • Color: {currentVehicle.color}
-              </Text>
-              <Text style={styles.vehicleMeta}>
-                Service Area: {driverProfile?.serviceArea || 'Colombo'}
+        {/* 2. Separate Driver's License Verification Card */}
+        <Card style={styles.licenseCard}>
+          <View style={styles.licenseInfoRow}>
+            <View
+              style={[
+                styles.licenseIconCircle,
+                isLicenseVerified ? styles.licenseIconVerified : styles.licenseIconPending,
+              ]}
+            >
+              <Ionicons
+                name={isLicenseVerified ? 'shield-checkmark' : 'id-card-outline'}
+                size={22}
+                color={isLicenseVerified ? Colors.success : Colors.secondary}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.licenseTitle}>Driver’s License Verification</Text>
+              <Text style={styles.licenseSub}>
+                {isLicenseVerified
+                  ? `License: ${verifiedLicenseNumber}${
+                      verifiedExpiryDate ? ` • Exp: ${verifiedExpiryDate}` : ''
+                    }`
+                  : 'Upload your driving license number, front & back photos, and expiry date'}
               </Text>
             </View>
-          ) : (
-            <Text style={styles.vehicleMeta}>
-              No vehicle registered yet. Tap Edit to configure your vehicle.
-            </Text>
-          )}
+          </View>
 
           <Button
-            title={isLicenseVerified ? "Driver's License Verified" : "Verify Drivers License"}
+            title={isLicenseVerified ? 'Verify Drivers License (Verified)' : 'Verify Drivers License'}
             variant={isLicenseVerified ? 'outline' : 'secondary'}
             size="medium"
             onPress={() => navigation.navigate('LicenseVerification')}
@@ -211,30 +235,105 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
                 color={isLicenseVerified ? Colors.primary : Colors.white}
               />
             }
-            style={{ marginTop: 10 }}
           />
         </Card>
 
-        {/* Menu Actions */}
+        {/* 3. Registered Vehicles Displayed as Separate Cards One by One */}
+        <View style={styles.vehiclesSectionHeader}>
+          <Text style={styles.sectionTitle}>
+            Registered Vehicles ({allVehicles.length})
+          </Text>
+          <TouchableOpacity
+            style={styles.addVehicleChip}
+            onPress={() => navigation.navigate('VehicleManagement', { mode: 'add' })}
+          >
+            <Ionicons name="add-circle" size={18} color={Colors.primary} />
+            <Text style={styles.addVehicleText}>Add Vehicle</Text>
+          </TouchableOpacity>
+        </View>
+
+        {allVehicles.length === 0 ? (
+          <Card style={styles.emptyVehicleCard}>
+            <Ionicons name="car-sport-outline" size={32} color={Colors.textMuted} />
+            <Text style={styles.emptyVehicleTitle}>No vehicles registered yet</Text>
+            <Text style={styles.emptyVehicleSub}>
+              Register your Tuk, Bike, Car, or Van to start accepting passenger trips.
+            </Text>
+            <Button
+              title="Register a Vehicle"
+              size="medium"
+              onPress={() => navigation.navigate('VehicleManagement', { mode: 'add' })}
+              style={{ marginTop: 8, width: '100%' }}
+            />
+          </Card>
+        ) : (
+          allVehicles.map((vehicle, index) => {
+            const isCurrentActive =
+              activeVehicle?.licensePlate?.toUpperCase() ===
+                vehicle.licensePlate?.toUpperCase() ||
+              (!activeVehicle && index === 0);
+
+            return (
+              <Card
+                key={`${vehicle.licensePlate}-${index}`}
+                style={[
+                  styles.singleVehicleCard,
+                  isCurrentActive && styles.singleVehicleCardActive,
+                ]}
+              >
+                <View style={styles.vehicleTopRow}>
+                  <View style={styles.vehicleTypeIconBox}>
+                    <Ionicons name="car-sport" size={20} color={Colors.white} />
+                  </View>
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.vehicleMain}>
+                      {vehicle.make} {vehicle.model}
+                    </Text>
+                    <Text style={styles.vehicleMeta}>
+                      Plate: {vehicle.licensePlate} • {vehicle.color}
+                      {vehicle.year ? ` • ${vehicle.year}` : ''}
+                    </Text>
+                  </View>
+
+                  <View style={styles.vehicleTypePill}>
+                    <Text style={styles.vehicleTypePillText}>{vehicle.vehicleType}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.vehicleBottomRow}>
+                  <TouchableOpacity
+                    style={styles.activeToggleBtn}
+                    onPress={() => selectActiveVehicle(vehicle.licensePlate)}
+                  >
+                    <Ionicons
+                      name={isCurrentActive ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={18}
+                      color={isCurrentActive ? Colors.success : Colors.textMuted}
+                    />
+                    <Text
+                      style={[
+                        styles.activeToggleText,
+                        isCurrentActive && { color: Colors.success, fontWeight: '700' },
+                      ]}
+                    >
+                      {isCurrentActive ? 'Active Vehicle' : 'Set as Active'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => navigation.navigate('VehicleManagement', { mode: 'manage' })}
+                  >
+                    <Text style={styles.editLink}>Edit</Text>
+                  </TouchableOpacity>
+                </View>
+              </Card>
+            );
+          })
+        )}
+
+        {/* 4. Menu Actions */}
         <Card style={styles.menuCard}>
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => navigation.navigate('LicenseVerification')}
-          >
-            <Ionicons name="id-card-outline" size={22} color={Colors.textPrimary} />
-            <Text style={styles.menuText}>Verify Drivers License</Text>
-            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => navigation.navigate('VehicleManagement')}
-          >
-            <Ionicons name="car-sport-outline" size={22} color={Colors.textPrimary} />
-            <Text style={styles.menuText}>Vehicle Settings</Text>
-            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-          </TouchableOpacity>
-
           <TouchableOpacity
             style={styles.menuItem}
             onPress={() => navigation.navigate('EditProfile')}
@@ -269,7 +368,8 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     padding: 16,
-    gap: 16,
+    gap: 14,
+    paddingBottom: 32,
   },
   profileCard: {
     flexDirection: 'row',
@@ -342,35 +442,135 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.textPrimary,
   },
-  vehicleCard: {
-    gap: 8,
+  licenseCard: {
+    gap: 14,
   },
-  vehicleHeader: {
+  licenseInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  licenseIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  licenseIconVerified: {
+    backgroundColor: '#DCFCE7',
+  },
+  licenseIconPending: {
+    backgroundColor: '#FEF3C7',
+  },
+  licenseTitle: {
+    ...Typography.bodyBold,
+    color: Colors.textPrimary,
+  },
+  licenseSub: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  vehiclesSectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: 4,
   },
   sectionTitle: {
     ...Typography.h3,
     color: Colors.textPrimary,
   },
-  editLink: {
+  addVehicleChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  addVehicleText: {
     ...Typography.bodyBold,
     color: Colors.primary,
   },
-  vehicleDetails: {
-    gap: 4,
+  emptyVehicleCard: {
+    alignItems: 'center',
+    paddingVertical: 22,
+    gap: 6,
+  },
+  emptyVehicleTitle: {
+    ...Typography.bodyBold,
+    color: Colors.textPrimary,
+  },
+  emptyVehicleSub: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  singleVehicleCard: {
+    gap: 12,
+  },
+  singleVehicleCardActive: {
+    borderColor: Colors.success,
+    borderWidth: 1.5,
+  },
+  vehicleTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  vehicleTypeIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   vehicleMain: {
     ...Typography.bodyBold,
     color: Colors.textPrimary,
+    fontSize: 15,
   },
   vehicleMeta: {
     ...Typography.caption,
     color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  vehicleTypePill: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  vehicleTypePillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  vehicleBottomRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: Colors.divider,
+    paddingTop: 10,
+  },
+  activeToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  activeToggleText: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+  },
+  editLink: {
+    ...Typography.bodyBold,
+    color: Colors.primary,
   },
   menuCard: {
     paddingVertical: 4,
+    marginTop: 4,
   },
   menuItem: {
     flexDirection: 'row',
