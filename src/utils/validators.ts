@@ -1,5 +1,5 @@
 /**
- * Validation utilities for Sri Lankan phone numbers, emails, and vehicle plates
+ * Validation utilities for Sri Lankan phone numbers, emails, driving licenses, and vehicle plates
  */
 export const isValidSriLankanPhone = (phone: string): boolean => {
   const cleaned = phone.replace(/\s+/g, '').replace(/-/g, '');
