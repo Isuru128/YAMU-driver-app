@@ -210,7 +210,7 @@ const styles = StyleSheet.create({
     right: 16,
     zIndex: 30,
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     alignItems: 'center',
   },
   bottomSheet: {
