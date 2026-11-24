@@ -64,13 +64,15 @@ export const ProfileScreen: React.FC<Props> = ({ navigation }) => {
             mediaTypes: ['images'],
             allowsEditing: true,
             aspect: [1, 1],
-            quality: 0.85,
+            quality: 0.75,
+            base64: true,
           })
         : await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ['images'],
             allowsEditing: true,
             aspect: [1, 1],
-            quality: 0.85,
+            quality: 0.75,
+            base64: true,
           });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
