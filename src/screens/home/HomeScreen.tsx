@@ -60,7 +60,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
       Alert.alert(
         'Active Vehicle Required',
         err?.message ||
-          'Please register your vehicle in Driver Profile before going online.',
+        'Please register your vehicle in Driver Profile before going online.',
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -91,17 +91,8 @@ export const HomeScreen: React.FC<Props> = ({ navigation }) => {
   return (
     <SafeScreen edges={['top']}>
       <View style={styles.container}>
-        {/* Top Floating Bar: Today's Earnings & Online Toggle */}
+        {/* Top Floating Bar: Online Toggle */}
         <View style={styles.topOverlay}>
-          <TouchableOpacity
-            style={styles.earningsPill}
-            activeOpacity={0.85}
-            onPress={() => navigation.navigate('Earnings')}
-          >
-            <Text style={styles.earningsLabel}>TODAY</Text>
-            <Text style={styles.earningsValue}>{formatCurrency(earnings.todayEarnings)}</Text>
-          </TouchableOpacity>
-
           <OnlineStatusToggle
             status={availabilityStatus}
             loading={isLoadingDriver}
@@ -221,30 +212,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  earningsPill: {
-    backgroundColor: Colors.surface,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    shadowColor: Colors.black,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  earningsLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-    letterSpacing: 0.6,
-  },
-  earningsValue: {
-    ...Typography.bodyBold,
-    color: Colors.textPrimary,
-    fontSize: 15,
   },
   bottomSheet: {
     position: 'absolute',
