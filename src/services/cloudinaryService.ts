@@ -128,6 +128,37 @@ function sha1(message: string): string {
  * CloudinaryService handles parsing CLOUDINARY_URL (cloudinary://<api_key>:<api_secret>@swsqjk22)
  * and uploading driver profile pictures and driving license images (front & back) to Cloudinary.
  */
+function uriToBase64DataUrl(uri: string): Promise<string> {
+  if (uri.startsWith('data:image/')) {
+    return Promise.resolve(uri);
+  }
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.onload = function () {
+      const reader = new FileReader();
+      reader.onloadend = function () {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+        } else {
+          reject(new Error('Failed to encode image to base64 data URL'));
+        }
+      };
+      reader.onerror = () => reject(new Error('FileReader failed to read image blob'));
+      reader.readAsDataURL(xhr.response);
+    };
+    xhr.onerror = () => reject(new Error('Could not read local image file for upload'));
+    xhr.responseType = 'blob';
+    xhr.open('GET', uri, true);
+    xhr.send(null);
+  });
+}
+
+/**
+ * CloudinaryService handles parsing CLOUDINARY_URL (cloudinary://<api_key>:<api_secret>@swsqjk22)
+ * and uploading driver profile pictures and driving license images (front & back) to Cloudinary
+ * using JSON base64 payloads (avoiding React Native 0.88 / Expo 58 FormDataPart incompatibilities).
+ */
 class CloudinaryService {
   parseConfig(): CloudinaryConfig {
     const rawUrl = ENV.CLOUDINARY_URL || 'cloudinary://<your_api_key>:<your_api_secret>@swsqjk22';
