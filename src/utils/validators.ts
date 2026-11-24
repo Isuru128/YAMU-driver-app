@@ -22,3 +22,10 @@ export const isValidEmail = (email: string): boolean => {
   return pattern.test(email.trim());
 };
 
+/**
+ * Validates Sri Lankan driving license number: starts with 1 letter followed by 7 digits (e.g. "B5571555")
+ */
+export const isValidSriLankanLicenseNumber = (licenseNumber: string): boolean => {
+  const cleaned = licenseNumber.trim().toUpperCase();
+  return /^[A-Z]\d{7}$/.test(cleaned);
+};
