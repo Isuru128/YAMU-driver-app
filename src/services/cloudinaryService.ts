@@ -125,8 +125,8 @@ function sha1(message: string): string {
 }
 
 /**
- * CloudinaryService handles parsing CLOUDINARY_URL (cloudinary://<api_key>:<api_secret>@swsqjk22)
- * and uploading driver profile pictures and driving license images (front & back) to Cloudinary.
+ * Converts a local file:// or content:// URI into a base64 data URI (data:image/jpeg;base64,...)
+ * using React Native's built-in XMLHttpRequest + FileReader so we never rely on legacy FormData parts.
  */
 function uriToBase64DataUrl(uri: string): Promise<string> {
   if (uri.startsWith('data:image/')) {
@@ -161,7 +161,7 @@ function uriToBase64DataUrl(uri: string): Promise<string> {
  */
 class CloudinaryService {
   parseConfig(): CloudinaryConfig {
-    const rawUrl = ENV.CLOUDINARY_URL || 'cloudinary://<your_api_key>:<your_api_secret>@swsqjk22';
+    const rawUrl = ENV.CLOUDINARY_URL || '';
     const match = rawUrl.match(/^cloudinary:\/\/([^:]+):([^@]+)@(.+)$/);
 
     if (match) {
@@ -182,9 +182,9 @@ class CloudinaryService {
   }
 
   private async uploadToFolder(
-    imageUri: string,
+    imageUriOrDataUrl: string,
     folder: string,
-    filename: string
+    _filename: string
   ): Promise<CloudinaryUploadResult> {
     const config = this.parseConfig();
     const cloudName = config.cloudName || 'swsqjk22';
@@ -197,69 +197,47 @@ class CloudinaryService {
       !config.apiKey.includes('<your_api_key>') &&
       !config.apiSecret.includes('<your_api_secret>');
 
-    const formData = new FormData();
+    // Convert local image URI to base64 data URL if not already base64
+    const base64File = await uriToBase64DataUrl(imageUriOrDataUrl);
 
-    formData.append('file', {
-      uri: imageUri,
-      type: 'image/jpeg',
-      name: filename,
-    } as any);
-
-    formData.append('folder', folder);
+    const payload: Record<string, string> = {
+      file: base64File,
+      folder,
+    };
 
     if (hasRealCredentials) {
       const paramsToSign = `folder=${folder}&timestamp=${timestamp}`;
       const signature = sha1(`${paramsToSign}${config.apiSecret}`);
 
-      formData.append('api_key', config.apiKey);
-      formData.append('timestamp', timestamp);
-      formData.append('signature', signature);
+      payload.api_key = config.apiKey;
+      payload.timestamp = timestamp;
+      payload.signature = signature;
     } else {
-      formData.append('upload_preset', config.uploadPreset || 'ml_default');
+      payload.upload_preset = config.uploadPreset || 'ml_default';
     }
 
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        body: formData,
-        headers: {
-          Accept: 'application/json',
-        },
-      });
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
 
-      if (response.ok) {
-        const data = await response.json();
-        return {
-          secureUrl: data.secure_url || data.url,
-          publicId: data.public_id,
-          format: data.format,
-          width: data.width,
-          height: data.height,
-        };
-      } else {
-        const errData = await response.json().catch(() => ({}));
-        const errMsg = errData?.error?.message || `Status ${response.status}`;
-
-        if (!hasRealCredentials) {
-          console.warn(
-            `[Cloudinary swsqjk22] Placeholder credentials detected (${errMsg}). Using local image preview until real API key & secret are set in .env.`
-          );
-          return {
-            secureUrl: imageUri,
-            publicId: `${folder}/${filename}`,
-          };
-        }
-
-        throw new Error(`Cloudinary upload failed: ${errMsg}`);
-      }
-    } catch (error: any) {
-      if (!hasRealCredentials) {
-        return {
-          secureUrl: imageUri,
-          publicId: `${folder}/${filename}`,
-        };
-      }
-      throw error;
+    if (response.ok) {
+      const data = await response.json();
+      return {
+        secureUrl: data.secure_url || data.url,
+        publicId: data.public_id,
+        format: data.format,
+        width: data.width,
+        height: data.height,
+      };
+    } else {
+      const errData = await response.json().catch(() => ({}));
+      const errMsg = errData?.error?.message || `Status ${response.status}`;
+      throw new Error(`Cloudinary upload failed: ${errMsg}`);
     }
   }
 
