@@ -430,17 +430,32 @@ export const DriverProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       if (driverProfile?.id) {
-        const updated = await driverService.updateLicense(
-          driverProfile.id,
-          {
-            licenseNumber: verifiedRecord.licenseNumber,
-            expiryDate: verifiedRecord.expiryDate,
-            frontImageUrl: verifiedRecord.frontImageUrl,
-            backImageUrl: verifiedRecord.backImageUrl,
-          },
-          token || undefined
-        );
-        setDriverProfile(updated);
+        try {
+          const updated = await driverService.updateLicense(
+            driverProfile.id,
+            {
+              licenseNumber: verifiedRecord.licenseNumber,
+              expiryDate: verifiedRecord.expiryDate,
+              frontImageUrl: verifiedRecord.frontImageUrl,
+              backImageUrl: verifiedRecord.backImageUrl,
+            },
+            token || undefined
+          );
+          setDriverProfile(updated);
+        } catch {
+          setDriverProfile((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  licenseNumber: verifiedRecord.licenseNumber,
+                  licenseExpiryDate: verifiedRecord.expiryDate,
+                  licenseFrontImageUrl: verifiedRecord.frontImageUrl,
+                  licenseBackImageUrl: verifiedRecord.backImageUrl,
+                  licenseVerified: true,
+                }
+              : prev
+          );
+        }
       }
 
       setLicenseVerification(verifiedRecord);
