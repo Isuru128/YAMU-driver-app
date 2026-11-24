@@ -71,13 +71,15 @@ export const LicenseVerificationScreen: React.FC<Props> = ({ navigation }) => {
             mediaTypes: ['images'],
             allowsEditing: true,
             aspect: [16, 10],
-            quality: 0.8,
+            quality: 0.75,
+            base64: true,
           })
         : await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ['images'],
             allowsEditing: true,
             aspect: [16, 10],
-            quality: 0.8,
+            quality: 0.75,
+            base64: true,
           });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -205,7 +207,7 @@ export const LicenseVerificationScreen: React.FC<Props> = ({ navigation }) => {
         <Text style={styles.sectionTitle}>1. License Details</Text>
         <Input
           label="Driving License Number"
-          placeholder="B1234567"
+          placeholder="B5571555"
           value={licenseNumber}
           onChangeText={(val) => {
             setLicenseNumber(val);
