@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
+  Modal,
   Alert,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -19,11 +20,45 @@ import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
 import { Colors } from '../../constants/colors';
 import { Typography } from '../../constants/typography';
+import { isValidSriLankanLicenseNumber } from '../../utils/validators';
 import { cloudinaryService } from '../../services/cloudinaryService';
 import { useAuth } from '../../hooks/useAuth';
 import { useDriver } from '../../hooks/useDriver';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'LicenseVerification'>;
+
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+const formatYmd = (year: number, monthIndex: number, day: number): string => {
+  const m = String(monthIndex + 1).padStart(2, '0');
+  const d = String(day).padStart(2, '0');
+  return `${year}-${m}-${d}`;
+};
+
+const formatReadableDate = (ymd: string): string => {
+  const parts = ymd.split('-');
+  if (parts.length !== 3) return ymd;
+  const year = parseInt(parts[0], 10);
+  const monthIdx = parseInt(parts[1], 10) - 1;
+  const day = parseInt(parts[2], 10);
+  if (isNaN(year) || isNaN(monthIdx) || isNaN(day) || !MONTH_NAMES[monthIdx]) return ymd;
+  return `${day} ${MONTH_NAMES[monthIdx]} ${year}`;
+};
 
 export const LicenseVerificationScreen: React.FC<Props> = ({ navigation }) => {
   const { user } = useAuth();
@@ -35,10 +70,11 @@ export const LicenseVerificationScreen: React.FC<Props> = ({ navigation }) => {
       ? driverProfile.licenseNumber
       : '');
 
+  const initialExpiry =
+    licenseVerification?.expiryDate || driverProfile?.licenseExpiryDate || '';
+
   const [licenseNumber, setLicenseNumber] = useState(existingLicenseNumber);
-  const [expiryDate, setExpiryDate] = useState(
-    licenseVerification?.expiryDate || driverProfile?.licenseExpiryDate || ''
-  );
+  const [expiryDate, setExpiryDate] = useState(initialExpiry);
   const [frontImageUri, setFrontImageUri] = useState<string>(
     licenseVerification?.frontImageUrl || driverProfile?.licenseFrontImageUrl || ''
   );
@@ -46,9 +82,69 @@ export const LicenseVerificationScreen: React.FC<Props> = ({ navigation }) => {
     licenseVerification?.backImageUrl || driverProfile?.licenseBackImageUrl || ''
   );
 
+  // Calendar Modal state
+  const now = new Date();
+  const parsedInitial = useMemo(() => {
+    if (initialExpiry && /^\d{4}-\d{2}-\d{2}$/.test(initialExpiry)) {
+      const [y, m, d] = initialExpiry.split('-').map((n) => parseInt(n, 10));
+      return { year: y, month: m - 1, day: d };
+    }
+    return {
+      year: now.getFullYear() + 4,
+      month: now.getMonth(),
+      day: now.getDate(),
+    };
+  }, [initialExpiry]);
+
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [calYear, setCalYear] = useState(parsedInitial.year);
+  const [calMonth, setCalMonth] = useState(parsedInitial.month);
+  const [calDay, setCalDay] = useState(parsedInitial.day);
+
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Build calendar cells for current calYear & calMonth
+  const calendarDays = useMemo(() => {
+    const firstDayOfWeek = new Date(calYear, calMonth, 1).getDay();
+    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+    const cells: (number | null)[] = [];
+
+    for (let i = 0; i < firstDayOfWeek; i++) {
+      cells.push(null);
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      cells.push(d);
+    }
+    return { cells, daysInMonth };
+  }, [calYear, calMonth]);
+
+  const handlePrevMonth = () => {
+    if (calMonth === 0) {
+      setCalMonth(11);
+      setCalYear((y) => y - 1);
+    } else {
+      setCalMonth((m) => m - 1);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (calMonth === 11) {
+      setCalMonth(0);
+      setCalYear((y) => y + 1);
+    } else {
+      setCalMonth((m) => m + 1);
+    }
+  };
+
+  const handleConfirmCalendarDate = () => {
+    const safeDay = Math.min(calDay, calendarDays.daysInMonth);
+    const formatted = formatYmd(calYear, calMonth, safeDay);
+    setExpiryDate(formatted);
+    setErrors((prev) => ({ ...prev, expiryDate: '' }));
+    setShowCalendar(false);
+  };
 
   const pickLicenseImage = async (side: 'front' | 'back', useCamera: boolean = false) => {
     try {
@@ -61,7 +157,10 @@ export const LicenseVerificationScreen: React.FC<Props> = ({ navigation }) => {
       } else {
         const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (!perm.granted) {
-          Alert.alert('Permission Required', 'Photo library access is needed to select your license.');
+          Alert.alert(
+            'Permission Required',
+            'Photo library access is needed to select your license.'
+          );
           return;
         }
       }
@@ -83,7 +182,10 @@ export const LicenseVerificationScreen: React.FC<Props> = ({ navigation }) => {
           });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const uri = result.assets[0].uri;
+        const asset = result.assets[0];
+        const uri = asset.base64
+          ? `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}`
+          : asset.uri;
         if (side === 'front') {
           setFrontImageUri(uri);
           setErrors((prev) => ({ ...prev, frontImage: '' }));
@@ -113,12 +215,13 @@ export const LicenseVerificationScreen: React.FC<Props> = ({ navigation }) => {
     const errs: Record<string, string> = {};
 
     if (!licenseNumber.trim()) {
-      errs.licenseNumber = 'Driving license number is required (e.g., B1234567)';
+      errs.licenseNumber = 'Driving license number is required (e.g., B5571555)';
+    } else if (!isValidSriLankanLicenseNumber(licenseNumber)) {
+      errs.licenseNumber =
+        'License number must start with a letter followed by 7 digits (e.g., B5571555)';
     }
     if (!expiryDate.trim()) {
-      errs.expiryDate = 'Expiry date is required (e.g., 2030-12-31)';
-    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(expiryDate.trim())) {
-      errs.expiryDate = 'Please enter date in YYYY-MM-DD format (e.g., 2030-12-31)';
+      errs.expiryDate = 'Please select your license expiry date from the calendar';
     }
     if (!frontImageUri) {
       errs.frontImage = 'Front photo of your driving license is required';
@@ -138,10 +241,9 @@ export const LicenseVerificationScreen: React.FC<Props> = ({ navigation }) => {
     try {
       const driverRef = driverProfile?.id || user?.id || String(Date.now());
 
-      // 1. Upload Front Photo to Cloudinary (swsqjk22) if it's a local URI
       let frontCloudUrl = frontImageUri;
       if (!frontImageUri.startsWith('http')) {
-        setUploadStatus('Uploading Front License Photo to Cloudinary...');
+        setUploadStatus('Uploading Front License Photo...');
         const frontRes = await cloudinaryService.uploadLicenseImage(
           frontImageUri,
           'front',
@@ -150,10 +252,9 @@ export const LicenseVerificationScreen: React.FC<Props> = ({ navigation }) => {
         frontCloudUrl = frontRes.secureUrl;
       }
 
-      // 2. Upload Back Photo to Cloudinary (swsqjk22) if it's a local URI
       let backCloudUrl = backImageUri;
       if (!backImageUri.startsWith('http')) {
-        setUploadStatus('Uploading Back License Photo to Cloudinary...');
+        setUploadStatus('Uploading Back License Photo...');
         const backRes = await cloudinaryService.uploadLicenseImage(
           backImageUri,
           'back',
@@ -172,13 +273,14 @@ export const LicenseVerificationScreen: React.FC<Props> = ({ navigation }) => {
 
       Alert.alert(
         'Driver License Verified',
-        'Your driving license details and photos have been uploaded to Cloudinary and saved.',
+        'Your driving license details and photos have been uploaded.',
         [{ text: 'Done', onPress: () => navigation.goBack() }]
       );
     } catch (err: any) {
       Alert.alert(
         'Verification Failed',
-        err?.message || 'Could not upload license photos. Please check your connection and try again.'
+        err?.message ||
+          'Could not upload license photos. Please check your connection and try again.'
       );
     } finally {
       setUploading(false);
@@ -197,39 +299,53 @@ export const LicenseVerificationScreen: React.FC<Props> = ({ navigation }) => {
             <View style={{ flex: 1 }}>
               <Text style={styles.infoTitle}>Sri Lanka Driving License Verification</Text>
               <Text style={styles.infoSub}>
-                Upload clear photos of the front and back of your valid driving license. Images are securely stored via Cloudinary (`swsqjk22`).
+                Upload clear photos of the front and back of your valid driving license.
               </Text>
             </View>
           </View>
         </Card>
 
-        {/* License Number & Expiry Date */}
+        {/* License Number & Calendar Expiry Date */}
         <Text style={styles.sectionTitle}>1. License Details</Text>
         <Input
           label="Driving License Number"
           placeholder="B5571555"
           value={licenseNumber}
           onChangeText={(val) => {
-            setLicenseNumber(val);
+            const formatted = val.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            setLicenseNumber(formatted);
             if (errors.licenseNumber) setErrors((prev) => ({ ...prev, licenseNumber: '' }));
           }}
           autoCapitalize="characters"
+          maxLength={8}
           error={errors.licenseNumber}
           leftIcon={<Ionicons name="card-outline" size={20} color={Colors.textMuted} />}
         />
 
-        <Input
-          label="License Expiry Date (YYYY-MM-DD)"
-          placeholder="2030-12-31"
-          value={expiryDate}
-          onChangeText={(val) => {
-            setExpiryDate(val);
-            if (errors.expiryDate) setErrors((prev) => ({ ...prev, expiryDate: '' }));
-          }}
-          keyboardType="numbers-and-punctuation"
-          error={errors.expiryDate}
-          leftIcon={<Ionicons name="calendar-outline" size={20} color={Colors.textMuted} />}
-        />
+        {/* Calendar Picker Trigger Field */}
+        <View style={styles.dateFieldContainer}>
+          <Text style={styles.photoLabel}>LICENSE EXPIRY DATE</Text>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            style={[
+              styles.dateSelectorBtn,
+              errors.expiryDate ? styles.uploadBoxError : null,
+            ]}
+            onPress={() => setShowCalendar(true)}
+          >
+            <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
+            <Text
+              style={[
+                styles.dateSelectorText,
+                !expiryDate && { color: Colors.textMuted },
+              ]}
+            >
+              {expiryDate ? formatReadableDate(expiryDate) : 'Tap to select expiry date'}
+            </Text>
+            <Ionicons name="chevron-down" size={18} color={Colors.textSecondary} />
+          </TouchableOpacity>
+          {errors.expiryDate ? <Text style={styles.errorText}>{errors.expiryDate}</Text> : null}
+        </View>
 
         {/* Front & Back License Photos */}
         <Text style={[styles.sectionTitle, { marginTop: 8 }]}>
@@ -258,7 +374,7 @@ export const LicenseVerificationScreen: React.FC<Props> = ({ navigation }) => {
             ) : (
               <View style={styles.placeholderContent}>
                 <View style={styles.iconCircle}>
-                  <Ionicons name="camera-outline" size={26} color={Colors.primary} />
+                  <Ionicons name="images-outline" size={26} color={Colors.primary} />
                 </View>
                 <Text style={styles.uploadTitle}>Add License Front Photo</Text>
                 <Text style={styles.uploadHint}>
@@ -314,7 +430,7 @@ export const LicenseVerificationScreen: React.FC<Props> = ({ navigation }) => {
           title={
             licenseVerification?.isVerified
               ? 'Update Verified License'
-              : 'Upload & Verify Driver License'
+              : 'Upload Driving License'
           }
           onPress={handleSubmitVerification}
           loading={uploading || isLoadingDriver}
@@ -322,6 +438,102 @@ export const LicenseVerificationScreen: React.FC<Props> = ({ navigation }) => {
           style={styles.submitBtn}
         />
       </ScrollView>
+
+      {/* Calendar Picker Modal */}
+      <Modal
+        visible={showCalendar}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCalendar(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.calendarCard}>
+            <View style={styles.calendarTopBar}>
+              <Text style={styles.calendarModalTitle}>Select Expiry Date</Text>
+              <TouchableOpacity onPress={() => setShowCalendar(false)}>
+                <Ionicons name="close-circle" size={24} color={Colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Year Selector Stepper */}
+            <View style={styles.stepperRow}>
+              <TouchableOpacity
+                style={styles.stepIconBtn}
+                onPress={() => setCalYear((y) => Math.max(now.getFullYear(), y - 1))}
+              >
+                <Ionicons name="chevron-back" size={18} color={Colors.textPrimary} />
+              </TouchableOpacity>
+              <Text style={styles.stepperYearText}>Year: {calYear}</Text>
+              <TouchableOpacity
+                style={styles.stepIconBtn}
+                onPress={() => setCalYear((y) => y + 1)}
+              >
+                <Ionicons name="chevron-forward" size={18} color={Colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Month Selector Stepper */}
+            <View style={styles.monthBar}>
+              <TouchableOpacity style={styles.stepIconBtn} onPress={handlePrevMonth}>
+                <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
+              </TouchableOpacity>
+              <Text style={styles.monthTitleText}>
+                {MONTH_NAMES[calMonth]} {calYear}
+              </Text>
+              <TouchableOpacity style={styles.stepIconBtn} onPress={handleNextMonth}>
+                <Ionicons name="chevron-forward" size={20} color={Colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Weekday Headers */}
+            <View style={styles.weekdaysRow}>
+              {WEEKDAYS.map((wd) => (
+                <Text key={wd} style={styles.weekdayLabel}>
+                  {wd}
+                </Text>
+              ))}
+            </View>
+
+            {/* Calendar Days Grid */}
+            <View style={styles.daysGrid}>
+              {calendarDays.cells.map((dayNum, idx) => {
+                if (dayNum === null) {
+                  return <View key={`empty-${idx}`} style={styles.dayCell} />;
+                }
+                const selected = dayNum === Math.min(calDay, calendarDays.daysInMonth);
+                return (
+                  <TouchableOpacity
+                    key={`day-${dayNum}`}
+                    style={[styles.dayCell, selected && styles.dayCellSelected]}
+                    onPress={() => setCalDay(dayNum)}
+                  >
+                    <Text style={[styles.dayText, selected && styles.dayTextSelected]}>
+                      {dayNum}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.calendarActions}>
+              <Button
+                title="Cancel"
+                variant="outline"
+                size="medium"
+                onPress={() => setShowCalendar(false)}
+                style={{ flex: 1 }}
+              />
+              <Button
+                title="Confirm Date"
+                variant="primary"
+                size="medium"
+                onPress={handleConfirmCalendarDate}
+                style={{ flex: 1 }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeScreen>
   );
 };
@@ -353,6 +565,25 @@ const styles = StyleSheet.create({
     ...Typography.h3,
     color: Colors.textPrimary,
     marginBottom: 12,
+  },
+  dateFieldContainer: {
+    marginBottom: 16,
+  },
+  dateSelectorBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    borderRadius: 12,
+    backgroundColor: Colors.surface,
+    paddingHorizontal: 12,
+    minHeight: 52,
+    gap: 10,
+  },
+  dateSelectorText: {
+    flex: 1,
+    ...Typography.body,
+    color: Colors.textPrimary,
   },
   photoBlock: {
     marginBottom: 18,
@@ -451,5 +682,103 @@ const styles = StyleSheet.create({
   submitBtn: {
     marginTop: 8,
     marginBottom: 28,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  calendarCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: Colors.surface,
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  calendarTopBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  calendarModalTitle: {
+    ...Typography.h3,
+    color: Colors.textPrimary,
+  },
+  stepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginBottom: 8,
+  },
+  stepperYearText: {
+    ...Typography.bodyBold,
+    color: Colors.primary,
+  },
+  monthBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  monthTitleText: {
+    ...Typography.bodyBold,
+    fontSize: 16,
+    color: Colors.textPrimary,
+  },
+  stepIconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weekdaysRow: {
+    flexDirection: 'row',
+    marginBottom: 6,
+  },
+  weekdayLabel: {
+    width: '14.28%',
+    textAlign: 'center',
+    ...Typography.caption,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  daysGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 16,
+  },
+  dayCell: {
+    width: '14.28%',
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
+  },
+  dayCellSelected: {
+    backgroundColor: Colors.primary,
+  },
+  dayText: {
+    ...Typography.body,
+    color: Colors.textPrimary,
+  },
+  dayTextSelected: {
+    color: Colors.white,
+    fontWeight: '700',
+  },
+  calendarActions: {
+    flexDirection: 'row',
+    gap: 10,
   },
 });
